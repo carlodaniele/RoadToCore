@@ -2,7 +2,7 @@
 /**
  * Plugin Name: RoadToCore Adapter
  * Description: Receives RoadToCore payloads and publishes WordPress drafts.
- * Version: 0.1.0
+ * Version: 0.1.1
  * Requires at least: 7.0
  * Requires PHP: 8.0
  * Author: RoadToCore
@@ -12,10 +12,6 @@
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
-}
-
-if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
-	return;
 }
 
 require_once __DIR__ . '/includes/block-builder.php';
