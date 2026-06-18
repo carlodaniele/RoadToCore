@@ -24,7 +24,7 @@ from core.telegram.webhook import (
 )
 
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 env_report: EnvValidationReport = validate_env_for_runtime()
 

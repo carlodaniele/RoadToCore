@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -76,9 +76,29 @@ class AIPipeline:
             result["thinking"] = thinking_tokens
         return result
 
+    @staticmethod
+    def _normalize_audio_mime_type(audio_bytes: bytes, mime_type: str | None) -> str:
+        normalized = (mime_type or "").split(";", 1)[0].strip().lower()
+        if normalized and normalized != "application/octet-stream":
+            return normalized
+
+        # Telegram file downloads often return octet-stream; infer from magic bytes.
+        if audio_bytes.startswith(b"OggS"):
+            return "audio/ogg"
+        if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+            return "audio/wav"
+        if audio_bytes.startswith(b"ID3"):
+            return "audio/mpeg"
+        if len(audio_bytes) >= 8 and audio_bytes[4:8] == b"ftyp":
+            return "audio/mp4"
+
+        return "audio/mpeg"
+
     def transcribe_audio(self, audio_bytes: bytes, mime_type: str) -> tuple[str, dict[str, Any]]:
         if not audio_bytes:
             return "", {"provider": self.provider, "model": "none", "token_usage": {"input": 0, "output": 0}}
+
+        resolved_mime_type = self._normalize_audio_mime_type(audio_bytes, mime_type)
 
         if self._google_client is not None and genai_types is not None:
             prompt = (
@@ -90,7 +110,7 @@ class AIPipeline:
                 model=self.transcription_model,
                 contents=[
                     prompt,
-                    genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type or "audio/mpeg"),
+                    genai_types.Part.from_bytes(data=audio_bytes, mime_type=resolved_mime_type),
                 ],
             )
 
@@ -206,7 +226,7 @@ class AIPipeline:
             "schema_version": "1.1.0",
             "event_id": str(uuid4()),
             "idempotency_key": idempotency_key,
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "source": {
                 "platform": "telegram",
                 "chat_id": audio_event.chat_id,
@@ -231,7 +251,7 @@ class AIPipeline:
             "meta": {
                 "language": self.default_language,
                 "tags": [],
-                "date": datetime.now(UTC).isoformat(),
+                "date": datetime.now(timezone.utc).isoformat(),
             },
             "targets": {
                 "wordpress": {
