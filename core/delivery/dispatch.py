@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ class WordPressConfig:
     username: str
     app_password: str
     timeout: float = 30.0
+    assets_public_url: str = ""
 
 
 @dataclass
@@ -65,6 +67,18 @@ class DeliveryDispatcher:
             return
         if not self.config.wp.endpoint:
             raise RuntimeError("WordPress dispatch enabled but endpoint is empty")
+
+        # Convert local asset paths to public HTTP URLs if configured
+        if self.config.wp.assets_public_url:
+            payload_str = json.dumps(payload)
+            # Match patterns like /any/path/outbox/assets/chat_id/event_id/file
+            # and convert to https://assets_url/assets/chat_id/event_id/file
+            payload_str = re.sub(
+                r'[^"]*outbox/assets/([^"]+)',
+                lambda m: f"{self.config.wp.assets_public_url}/assets/{m.group(1)}",
+                payload_str,
+            )
+            payload = json.loads(payload_str)
 
         with httpx.Client(timeout=self.config.wp.timeout) as client:
             response = client.post(

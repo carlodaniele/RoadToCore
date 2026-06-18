@@ -7,6 +7,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 
 from core.ai.pipeline import AIPipeline
 from core.config.env_validation import EnvValidationReport, validate_env_for_runtime
@@ -34,8 +35,8 @@ pipeline = AIPipeline(
     provider=os.getenv("AI_PROVIDER", "google"),
     default_language=os.getenv("AI_DEFAULT_LANGUAGE", "English"),
     google_api_key=os.getenv("GOOGLE_API_KEY", ""),
-    transcription_model=os.getenv("GOOGLE_TRANSCRIPTION_MODEL", "gemini-2.0-flash"),
-    generation_model=os.getenv("GOOGLE_GENERATION_MODEL", "gemini-2.0-flash"),
+    transcription_model=os.getenv("GOOGLE_TRANSCRIPTION_MODEL", "gemini-flash-latest"),
+    generation_model=os.getenv("GOOGLE_GENERATION_MODEL", "gemini-flash-latest"),
 )
 
 allowed_chat_ids = parse_allowed_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))
@@ -60,6 +61,7 @@ delivery = DeliveryDispatcher(
             username=os.getenv("DELIVERY_WORDPRESS_USERNAME", "").strip(),
             app_password=os.getenv("DELIVERY_WORDPRESS_APP_PASSWORD", "").strip(),
             timeout=float(os.getenv("DELIVERY_WORDPRESS_TIMEOUT", "30")),
+            assets_public_url=os.getenv("ROADTOCORE_ASSETS_PUBLIC_URL", "").strip(),
         ),
         astro=AstroConfig(
             enabled=os.getenv("DELIVERY_ASTRO_ENABLED", "false").lower() == "true",
@@ -186,6 +188,15 @@ def deliver_outbox() -> dict[str, Any]:
         "status": "ok",
         "results": results,
     }
+
+
+@app.get("/assets/{chat_id}/{event_id}/{filename}")
+def get_asset(chat_id: str, event_id: str, filename: str) -> FileResponse:
+    """Serve asset files (images) from the outbox directory."""
+    file_path = assets_dir / chat_id / event_id / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return FileResponse(file_path)
 
 
 @app.post("/webhook/telegram")
