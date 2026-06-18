@@ -1,1 +1,1 @@
-"""Configuration helpers for RoadToCode."""
+"""Configuration helpers for RoadToCore."""

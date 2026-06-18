@@ -1,1 +1,1 @@
-"""Telegram input adapters for RoadToCode."""
+"""Telegram input adapters for RoadToCore."""

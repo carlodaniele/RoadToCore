@@ -17,10 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param string $alt       Optional alt text.
  * @return int|\WP_Error Attachment ID on success.
  */
-function roadtocode_upload_image_from_asset_ref( string $asset_ref, int $post_id, string $caption = '', string $alt = '' ) {
+function roadtocore_upload_image_from_asset_ref( string $asset_ref, int $post_id, string $caption = '', string $alt = '' ) {
 	$asset_ref = trim( $asset_ref );
 	if ( '' === $asset_ref ) {
-		return new \WP_Error( 'roadtocode_empty_asset_ref', 'Asset reference is empty.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_empty_asset_ref', 'Asset reference is empty.', array( 'status' => 400 ) );
 	}
 
 	$contents  = null;
@@ -41,11 +41,11 @@ function roadtocode_upload_image_from_asset_ref( string $asset_ref, int $post_id
 
 		$code = wp_remote_retrieve_response_code( $response );
 		if ( $code < 200 || $code >= 300 ) {
-			return new \WP_Error( 'roadtocode_asset_download_failed', 'Could not download asset.', array( 'status' => 400 ) );
+			return new \WP_Error( 'roadtocore_asset_download_failed', 'Could not download asset.', array( 'status' => 400 ) );
 		}
 
 		$contents  = wp_remote_retrieve_body( $response );
-		$file_name = wp_basename( wp_parse_url( $asset_ref, PHP_URL_PATH ) ?: 'roadtocode-image.jpg' );
+		$file_name = wp_basename( wp_parse_url( $asset_ref, PHP_URL_PATH ) ?: 'roadtocore-image.jpg' );
 		$header_ct = (string) wp_remote_retrieve_header( $response, 'content-type' );
 		if ( '' !== $header_ct ) {
 			$mime_type = sanitize_mime_type( $header_ct );
@@ -58,16 +58,16 @@ function roadtocode_upload_image_from_asset_ref( string $asset_ref, int $post_id
 			$mime_type = sanitize_mime_type( (string) $checked['type'] );
 		}
 	} else {
-		return new \WP_Error( 'roadtocode_unsupported_asset_ref', 'Unsupported asset_ref format.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_unsupported_asset_ref', 'Unsupported asset_ref format.', array( 'status' => 400 ) );
 	}
 
 	if ( ! is_string( $contents ) || '' === $contents ) {
-		return new \WP_Error( 'roadtocode_empty_asset_body', 'Asset body is empty.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_empty_asset_body', 'Asset body is empty.', array( 'status' => 400 ) );
 	}
 
-	$upload = wp_upload_bits( sanitize_file_name( $file_name ?: 'roadtocode-image.jpg' ), null, $contents );
+	$upload = wp_upload_bits( sanitize_file_name( $file_name ?: 'roadtocore-image.jpg' ), null, $contents );
 	if ( ! empty( $upload['error'] ) ) {
-		return new \WP_Error( 'roadtocode_upload_failed', (string) $upload['error'], array( 'status' => 500 ) );
+		return new \WP_Error( 'roadtocore_upload_failed', (string) $upload['error'], array( 'status' => 500 ) );
 	}
 
 	$attachment_id = wp_insert_attachment(
@@ -114,13 +114,13 @@ function roadtocode_upload_image_from_asset_ref( string $asset_ref, int $post_id
  *
  * @return void
  */
-function roadtocode_register_rest_routes(): void {
+function roadtocore_register_rest_routes(): void {
 	register_rest_route(
-		'roadtocode/v1',
+		'roadtocore/v1',
 		'/receive',
 		array(
 			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => 'roadtocode_rest_receive',
+			'callback'            => 'roadtocore_rest_receive',
 			'permission_callback' => static function (): bool {
 				return current_user_can( 'edit_posts' );
 			},
@@ -129,16 +129,16 @@ function roadtocode_register_rest_routes(): void {
 }
 
 /**
- * Process incoming RoadToCode payload.
+ * Process incoming RoadToCore payload.
  *
  * @param \WP_REST_Request $request Request.
  * @return \WP_REST_Response|\WP_Error
  */
-function roadtocode_rest_receive( \WP_REST_Request $request ) {
+function roadtocore_rest_receive( \WP_REST_Request $request ) {
 	$payload = $request->get_json_params();
 
 	if ( ! is_array( $payload ) ) {
-		return new \WP_Error( 'roadtocode_invalid_payload', 'Payload must be a JSON object.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_invalid_payload', 'Payload must be a JSON object.', array( 'status' => 400 ) );
 	}
 
 	$schema_version  = isset( $payload['schema_version'] ) ? sanitize_text_field( (string) $payload['schema_version'] ) : '';
@@ -162,19 +162,19 @@ function roadtocode_rest_receive( \WP_REST_Request $request ) {
 	}
 
 	if ( '' === $schema_version || ! str_starts_with( $schema_version, '1.1' ) ) {
-		return new \WP_Error( 'roadtocode_invalid_schema_version', 'schema_version must start with 1.1.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_invalid_schema_version', 'schema_version must start with 1.1.', array( 'status' => 400 ) );
 	}
 
 	if ( '' === $event_id ) {
-		return new \WP_Error( 'roadtocode_missing_event_id', 'Missing event_id.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_missing_event_id', 'Missing event_id.', array( 'status' => 400 ) );
 	}
 
 	if ( '' === $idempotency_key ) {
-		return new \WP_Error( 'roadtocode_missing_idempotency_key', 'Missing idempotency key.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_missing_idempotency_key', 'Missing idempotency key.', array( 'status' => 400 ) );
 	}
 
 	if ( '' === $title ) {
-		return new \WP_Error( 'roadtocode_missing_title', 'Missing content title.', array( 'status' => 400 ) );
+		return new \WP_Error( 'roadtocore_missing_title', 'Missing content title.', array( 'status' => 400 ) );
 	}
 
 	$existing = get_posts(
@@ -182,12 +182,12 @@ function roadtocode_rest_receive( \WP_REST_Request $request ) {
 			'post_type'      => 'post',
 			'post_status'    => array( 'draft', 'pending', 'publish' ),
 			'posts_per_page' => 1,
-			'meta_key'       => '_roadtocode_idempotency_key',
+			'meta_key'       => '_roadtocore_idempotency_key',
 			'meta_value'     => $idempotency_key,
 		)
 	);
 
-	$post_content = roadtocode_build_post_content_from_sections( $sections );
+	$post_content = roadtocore_build_post_content_from_sections( $sections );
 
 	if ( ! empty( $existing ) ) {
 		$post_id = (int) $existing[0]->ID;
@@ -221,12 +221,12 @@ function roadtocode_rest_receive( \WP_REST_Request $request ) {
 			return $post_id;
 		}
 
-		update_post_meta( (int) $post_id, '_roadtocode_idempotency_key', $idempotency_key );
+		update_post_meta( (int) $post_id, '_roadtocore_idempotency_key', $idempotency_key );
 	}
 
-	update_post_meta( (int) $post_id, '_roadtocode_event_id', $event_id );
+	update_post_meta( (int) $post_id, '_roadtocore_event_id', $event_id );
 	if ( '' !== $transcript_full ) {
-		update_post_meta( (int) $post_id, '_roadtocode_transcript_full', $transcript_full );
+		update_post_meta( (int) $post_id, '_roadtocore_transcript_full', $transcript_full );
 	}
 
 	$attachment_ids = array();
@@ -239,7 +239,7 @@ function roadtocode_rest_receive( \WP_REST_Request $request ) {
 		$caption   = isset( $image['caption'] ) ? (string) $image['caption'] : '';
 		$alt       = isset( $image['alt'] ) ? (string) $image['alt'] : '';
 
-		$attachment_id = roadtocode_upload_image_from_asset_ref( $asset_ref, (int) $post_id, $caption, $alt );
+		$attachment_id = roadtocore_upload_image_from_asset_ref( $asset_ref, (int) $post_id, $caption, $alt );
 		if ( is_wp_error( $attachment_id ) ) {
 			continue;
 		}

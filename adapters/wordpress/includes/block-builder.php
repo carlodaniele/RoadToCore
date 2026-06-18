@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @param array $sections Structured sections.
  * @return string
  */
-function roadtocode_build_post_content_from_sections( array $sections ): string {
+function roadtocore_build_post_content_from_sections( array $sections ): string {
 	$blocks = array();
 
 	foreach ( $sections as $section ) {

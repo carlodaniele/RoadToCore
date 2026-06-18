@@ -5,20 +5,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Register RoadToCode abilities.
+ * Register RoadToCore abilities.
  *
  * @return void
  */
-function roadtocode_register_abilities(): void {
+function roadtocore_register_abilities(): void {
 	if ( ! function_exists( 'wp_register_ability' ) ) {
 		return;
 	}
 
 	wp_register_ability(
-		'roadtocode/publish-post',
+		'roadtocore/publish-post',
 		array(
-			'label'       => __( 'Publish RoadToCode Payload', 'roadtocode' ),
-			'description' => __( 'Creates or updates a post from a RoadToCode payload.', 'roadtocode' ),
+			'label'       => __( 'Publish RoadToCore Payload', 'roadtocore' ),
+			'description' => __( 'Creates or updates a post from a RoadToCore payload.', 'roadtocore' ),
 			'category'    => 'site',
 			'input_schema' => array(
 				'type'       => 'object',
@@ -44,7 +44,7 @@ function roadtocode_register_abilities(): void {
 				),
 				'required'   => array( 'post_id', 'status' ),
 			),
-			'execute_callback' => 'roadtocode_execute_publish_ability',
+			'execute_callback' => 'roadtocore_execute_publish_ability',
 			'permission_callback' => static function (): bool {
 				return current_user_can( 'edit_posts' );
 			},
@@ -61,12 +61,12 @@ function roadtocode_register_abilities(): void {
  * @param array $input Ability input payload.
  * @return array|\WP_Error
  */
-function roadtocode_execute_publish_ability( array $input ) {
-	$request = new \WP_REST_Request( 'POST', '/roadtocode/v1/receive' );
+function roadtocore_execute_publish_ability( array $input ) {
+	$request = new \WP_REST_Request( 'POST', '/roadtocore/v1/receive' );
 	$request->set_body( wp_json_encode( $input ) );
 	$request->set_header( 'content-type', 'application/json' );
 
-	$result = roadtocode_rest_receive( $request );
+	$result = roadtocore_rest_receive( $request );
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}

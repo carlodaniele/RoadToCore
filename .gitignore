@@ -33,7 +33,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Runtime output (RoadToCode core)
+# Runtime output (RoadToCore core)
 outbox/
 core/outbox/
 

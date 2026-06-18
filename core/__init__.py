@@ -1,1 +1,1 @@
-"""RoadToCode core package."""
+"""RoadToCore core package."""

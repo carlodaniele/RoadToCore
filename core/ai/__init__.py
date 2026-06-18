@@ -1,1 +1,1 @@
-"""AI pipeline for RoadToCode."""
+"""AI pipeline for RoadToCore."""

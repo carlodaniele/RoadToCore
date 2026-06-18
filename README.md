@@ -1,6 +1,6 @@
-# RoadToCode
+# RoadToCore
 
-RoadToCode is a CMS-agnostic content pipeline that receives Telegram messages, triggers on audio arrival, generates structured editorial payloads via AI, and distributes the result to target adapters (WordPress, Astro, and future CMS/frameworks).
+RoadToCore is a CMS-agnostic content pipeline that receives Telegram messages, triggers on audio arrival, generates structured editorial payloads via AI, and distributes the result to target adapters (WordPress, Astro, and future CMS/frameworks).
 
 ## Architecture
 
@@ -59,8 +59,8 @@ Important variables:
 - `GOOGLE_API_KEY`
 - `GOOGLE_TRANSCRIPTION_MODEL`
 - `GOOGLE_GENERATION_MODEL`
-- `ROADTOCODE_OUTBOX_DIR`
-- `ROADTOCODE_ASSETS_DIR`
+- `ROADTOCORE_OUTBOX_DIR`
+- `ROADTOCORE_ASSETS_DIR`
 - `DELIVERY_AUTORUN`
 - `DELIVERY_WORDPRESS_*`
 - `DELIVERY_ASTRO_*`
@@ -126,11 +126,11 @@ Path:
 
 Implemented capabilities:
 
-- REST endpoint: `POST /wp-json/roadtocode/v1/receive`
-- Idempotent post create/update via `_roadtocode_idempotency_key`
+- REST endpoint: `POST /wp-json/roadtocore/v1/receive`
+- Idempotent post create/update via `_roadtocore_idempotency_key`
 - Content mapping to Gutenberg blocks (`heading`, `paragraph`, `list`)
 - Media ingest from `asset_ref` (`http/https` and absolute local path)
-- Optional Ability registration: `roadtocode/publish-post`
+- Optional Ability registration: `roadtocore/publish-post`
 - Optional AI-based image alt text enrichment when AI Client is available
 
 ### Install
@@ -164,7 +164,7 @@ npm run build
 node dist/index.js \
   --input /absolute/path/to/payload.json \
   --content-dir /absolute/path/to/astro/src/content \
-  --public-dir /absolute/path/to/astro/public/images/roadtocode \
+  --public-dir /absolute/path/to/astro/public/images/roadtocore \
   --assets-dir /absolute/path/to/local/assets
 ```
 

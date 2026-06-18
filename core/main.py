@@ -28,7 +28,7 @@ load_dotenv()
 
 env_report: EnvValidationReport = validate_env_for_runtime()
 
-app = FastAPI(title="RoadToCode Core", version="0.1.0")
+app = FastAPI(title="RoadToCore Core", version="0.1.0")
 store = TelegramBufferStore()
 pipeline = AIPipeline(
     provider=os.getenv("AI_PROVIDER", "google"),
@@ -41,9 +41,9 @@ pipeline = AIPipeline(
 allowed_chat_ids = parse_allowed_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))
 webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 telegram_token = os.getenv("TELEGRAM_TOKEN", "").strip()
-outbox_dir = Path(os.getenv("ROADTOCODE_OUTBOX_DIR", "./outbox"))
+outbox_dir = Path(os.getenv("ROADTOCORE_OUTBOX_DIR", "./outbox"))
 outbox_dir.mkdir(parents=True, exist_ok=True)
-assets_dir = Path(os.getenv("ROADTOCODE_ASSETS_DIR", str(outbox_dir / "assets")))
+assets_dir = Path(os.getenv("ROADTOCORE_ASSETS_DIR", str(outbox_dir / "assets")))
 assets_dir.mkdir(parents=True, exist_ok=True)
 idempotency_dir = outbox_dir / ".idempotency"
 idempotency_dir.mkdir(parents=True, exist_ok=True)

@@ -1,20 +1,20 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve } from "path";
 
-type RoadToCodeSection = {
+type RoadToCoreSection = {
   heading: string;
   level: 2 | 3;
   paragraphs: string[];
   bullet_points?: string[];
 };
 
-type RoadToCodePayload = {
+type RoadToCorePayload = {
   schema_version: string;
   event_id: string;
   content: {
     title: string;
     summary: string;
-    sections: RoadToCodeSection[];
+    sections: RoadToCoreSection[];
   };
   assets: {
     images: Array<{
@@ -63,7 +63,7 @@ function parseArgs(argv: string[]): CliArgs {
   return {
     input,
     contentDir: getOption("--content-dir", "./content"),
-    publicDir: getOption("--public-dir", "./public/images/roadtocode"),
+    publicDir: getOption("--public-dir", "./public/images/roadtocore"),
     assetsDir: getOption("--assets-dir", "."),
   };
 }
@@ -98,7 +98,7 @@ function resolveAssetLocalPath(assetRef: string, assetsDir: string): string | nu
   return absolute;
 }
 
-function syncImages(payload: RoadToCodePayload, publicDir: string, assetsDir: string): string[] {
+function syncImages(payload: RoadToCorePayload, publicDir: string, assetsDir: string): string[] {
   ensureDirectory(publicDir);
 
   const targetRefs: string[] = [];
@@ -117,7 +117,7 @@ function syncImages(payload: RoadToCodePayload, publicDir: string, assetsDir: st
   return targetRefs;
 }
 
-function renderMarkdown(payload: RoadToCodePayload): string {
+function renderMarkdown(payload: RoadToCorePayload): string {
   const collection = payload.targets?.astro?.collection ?? "blog";
   const slug = payload.targets?.astro?.slug ?? slugify(payload.content.title);
   const draft = payload.targets?.astro?.draft ?? true;
@@ -167,13 +167,13 @@ if (require.main === module) {
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n`);
     process.stderr.write(
-      "Usage: node dist/index.js --input payload.json [--content-dir ./content] [--public-dir ./public/images/roadtocode] [--assets-dir .]\n"
+      "Usage: node dist/index.js --input payload.json [--content-dir ./content] [--public-dir ./public/images/roadtocore] [--assets-dir .]\n"
     );
     process.exit(1);
   }
 
   const rawPayload = readFileSync(resolve(cli.input), "utf-8");
-  const payload = JSON.parse(rawPayload) as RoadToCodePayload;
+  const payload = JSON.parse(rawPayload) as RoadToCorePayload;
   const collection = payload.targets?.astro?.collection ?? "blog";
   const slug = payload.targets?.astro?.slug ?? slugify(payload.content.title);
 
