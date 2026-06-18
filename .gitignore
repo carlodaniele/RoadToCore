@@ -1,0 +1,49 @@
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Python (core)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Build / dist
+build/
+dist/
+
+# Node (Astro adapter)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime output (RoadToCode core)
+outbox/
+core/outbox/
+
+# Runtime assets
+assets/
+core/assets/
+
+# Coverage
+.coverage
+coverage/
+
+# TypeScript incremental cache
+*.tsbuildinfo

@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roadtocode.dev/schema/v1.1/content-event.schema.json",
+  "title": "RoadToCode Content Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "idempotency_key",
+    "created_at",
+    "source",
+    "content",
+    "assets",
+    "meta"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.1(\\.[0-9]+)?$"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 256
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "chat_id", "audio_message_id"],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": ["telegram"]
+        },
+        "chat_id": {
+          "type": "integer"
+        },
+        "audio_message_id": {
+          "type": "integer"
+        },
+        "audio_file_id": {
+          "type": "string"
+        },
+        "audio_file_unique_id": {
+          "type": "string"
+        },
+        "image_message_ids": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "default": []
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "summary", "transcript_summary", "sections"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transcript_summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transcript_full": {
+          "type": "string"
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["heading", "level", "paragraphs"],
+            "properties": {
+              "heading": {
+                "type": "string",
+                "minLength": 1
+              },
+              "level": {
+                "type": "integer",
+                "enum": [2, 3]
+              },
+              "paragraphs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "bullet_points": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "default": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["images"],
+      "properties": {
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["asset_ref"],
+            "properties": {
+              "asset_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "caption": {
+                "type": "string"
+              },
+              "alt": {
+                "type": "string"
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "tags", "date"],
+      "properties": {
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordpress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "post_status": {
+              "type": "string",
+              "enum": ["draft", "pending", "publish"],
+              "default": "draft"
+            },
+            "author": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "categories": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 1 },
+              "default": []
+            }
+          }
+        },
+        "astro": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "type": "string"
+            },
+            "slug": {
+              "type": "string"
+            },
+            "draft": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "ai_meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "token_usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "integer", "minimum": 0 },
+            "output": { "type": "integer", "minimum": 0 },
+            "thinking": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}
