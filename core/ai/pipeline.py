@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -30,16 +31,84 @@ class AIPipeline:
         google_api_key: str = "",
         transcription_model: str = "gemini-2.0-flash",
         generation_model: str = "gemini-2.0-flash",
+        system_prompt: str = "",
+        generation_prompt_template: str = "",
+        ai_request_config: dict[str, Any] | None = None,
     ) -> None:
         self.provider = provider
         self.default_language = default_language
         self.google_api_key = google_api_key.strip()
         self.transcription_model = transcription_model
         self.generation_model = generation_model
+        self.system_prompt = system_prompt.strip()
+        self.generation_prompt_template = generation_prompt_template.strip()
+        self.ai_request_config = ai_request_config if isinstance(ai_request_config, dict) else {}
 
         self._google_client = None
         if self.provider == "google" and self.google_api_key and genai is not None:
             self._google_client = genai.Client(api_key=self.google_api_key)
+
+    @staticmethod
+    def load_prompt_file(path: str) -> str:
+        """Load a prompt from disk, returning empty string if unavailable."""
+        if not path.strip():
+            return ""
+
+        try:
+            return Path(path).read_text(encoding="utf-8").strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def load_request_config_file(path: str) -> dict[str, Any]:
+        """Load AI request config JSON from disk, returning empty dict on error."""
+        if not path.strip():
+            return {}
+
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+        return data if isinstance(data, dict) else {}
+
+    def _google_request_config(self, section: str) -> dict[str, Any]:
+        """Return request config section for Google calls (transcription/generation)."""
+        section_config = self.ai_request_config.get(section, {})
+        if not isinstance(section_config, dict):
+            return {}
+
+        # Keep custom editorial keys out of provider request config.
+        sanitized = dict(section_config)
+        sanitized.pop("target_words", None)
+        sanitized.pop("min_words", None)
+        sanitized.pop("max_words", None)
+        return sanitized
+
+    def _build_length_instructions(self) -> str:
+        """Build word-length instructions from generation config."""
+        generation_cfg = self.ai_request_config.get("generation", {})
+        if not isinstance(generation_cfg, dict):
+            return ""
+
+        target_words = generation_cfg.get("target_words")
+        min_words = generation_cfg.get("min_words")
+        max_words = generation_cfg.get("max_words")
+
+        if isinstance(target_words, int) and target_words > 0:
+            return f"Target total length: about {target_words} words."
+
+        has_min = isinstance(min_words, int) and min_words > 0
+        has_max = isinstance(max_words, int) and max_words > 0
+
+        if has_min and has_max and min_words <= max_words:
+            return f"Target total length: between {min_words} and {max_words} words."
+        if has_min:
+            return f"Target total length: at least {min_words} words."
+        if has_max:
+            return f"Target total length: up to {max_words} words."
+
+        return ""
 
     @staticmethod
     def _extract_json_from_text(text: str) -> dict[str, Any] | None:
@@ -106,12 +175,18 @@ class AIPipeline:
                 "Return plain text only."
             )
 
+            transcription_config = self._google_request_config("transcription")
+            request_kwargs: dict[str, Any] = {}
+            if transcription_config:
+                request_kwargs["config"] = transcription_config
+
             response = self._google_client.models.generate_content(
                 model=self.transcription_model,
                 contents=[
                     prompt,
                     genai_types.Part.from_bytes(data=audio_bytes, mime_type=resolved_mime_type),
                 ],
+                **request_kwargs,
             )
 
             transcript = (getattr(response, "text", "") or "").strip()
@@ -149,17 +224,41 @@ class AIPipeline:
                 ],
             }
 
-            prompt = (
-                f"You are an editorial assistant. Create concise blog content in {self.default_language}.\n"
-                "Return ONLY valid JSON matching this shape: "
-                f"{json.dumps(schema_hint)}\n"
-                "Rules: heading level must be 2 or 3, paragraphs concise, bullet_points optional.\n"
-                f"Transcript:\n{transcript}"
-            )
+            schema_hint_json = json.dumps(schema_hint)
+
+            # If a template is configured, use placeholder substitution.
+            # Supported placeholders:
+            # - {{SYSTEM_PROMPT}}
+            # - {{LANGUAGE}}
+            # - {{SCHEMA_HINT_JSON}}
+            # - {{TRANSCRIPT}}
+            if self.generation_prompt_template:
+                prompt = self.generation_prompt_template
+                prompt = prompt.replace("{{SYSTEM_PROMPT}}", self.system_prompt)
+                prompt = prompt.replace("{{LANGUAGE}}", self.default_language)
+                prompt = prompt.replace("{{SCHEMA_HINT_JSON}}", schema_hint_json)
+                prompt = prompt.replace("{{LENGTH_INSTRUCTIONS}}", self._build_length_instructions())
+                prompt = prompt.replace("{{TRANSCRIPT}}", transcript)
+            else:
+                length_instructions = self._build_length_instructions()
+                prompt = (
+                    f"You are an editorial assistant. Create concise blog content in {self.default_language}.\n"
+                    "Return ONLY valid JSON matching this shape: "
+                    f"{schema_hint_json}\n"
+                    "Rules: heading level must be 2 or 3, paragraphs concise, bullet_points optional.\n"
+                    f"{length_instructions}\n"
+                    f"Transcript:\n{transcript}"
+                )
+
+            generation_config = self._google_request_config("generation")
+            request_kwargs: dict[str, Any] = {}
+            if generation_config:
+                request_kwargs["config"] = generation_config
 
             response = self._google_client.models.generate_content(
                 model=self.generation_model,
                 contents=[prompt],
+                **request_kwargs,
             )
             raw_json = (getattr(response, "text", "") or "").strip()
             parsed = self._extract_json_from_text(raw_json)

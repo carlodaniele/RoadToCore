@@ -59,11 +59,100 @@ Important variables:
 - `GOOGLE_API_KEY`
 - `GOOGLE_TRANSCRIPTION_MODEL`
 - `GOOGLE_GENERATION_MODEL`
+- `ROADTOCORE_SYSTEM_PROMPT_FILE`
+- `ROADTOCORE_GENERATION_PROMPT_FILE`
+- `ROADTOCORE_AI_REQUEST_CONFIG_FILE`
 - `ROADTOCORE_OUTBOX_DIR`
 - `ROADTOCORE_ASSETS_DIR`
 - `DELIVERY_AUTORUN`
 - `DELIVERY_WORDPRESS_*`
 - `DELIVERY_ASTRO_*`
+
+### Prompt Customization (System + Generation)
+
+RoadToCore supports external prompt files so you can tune behavior without code changes.
+
+- Default system prompt: `core/ai/prompts/system.prompt.md`
+- Default generation prompt: `core/ai/prompts/generation.prompt.md`
+
+Environment variables:
+
+- `ROADTOCORE_SYSTEM_PROMPT_FILE`
+- `ROADTOCORE_GENERATION_PROMPT_FILE`
+- `ROADTOCORE_AI_REQUEST_CONFIG_FILE`
+
+The generation prompt template supports these placeholders:
+
+- `{{SYSTEM_PROMPT}}`
+- `{{LANGUAGE}}`
+- `{{SCHEMA_HINT_JSON}}`
+- `{{TRANSCRIPT}}`
+
+If prompt files are missing or empty, the pipeline falls back to internal default prompts.
+
+### AI Request Parameters Configuration
+
+RoadToCore can also externalize request-level AI parameters (for example temperature) in JSON.
+
+- Default file: `core/ai/request_config.json`
+- Env var: `ROADTOCORE_AI_REQUEST_CONFIG_FILE`
+
+Example:
+
+```json
+{
+  "transcription": {
+    "temperature": 0.1,
+    "top_p": 0.95
+  },
+  "generation": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 40,
+    "max_output_tokens": 1200,
+    "target_words": 500
+  }
+}
+```
+
+Notes:
+
+- `transcription` applies to the audio transcription request.
+- `generation` applies to structured content generation.
+- `target_words` controls approximate total output length (for example `500` or `5000`).
+- You can use `min_words` and/or `max_words` as an alternative range-based constraint.
+- If the file is missing/invalid, RoadToCore safely falls back to default provider behavior.
+
+#### Practical examples
+
+For an output around 500 words:
+
+```json
+{
+  "generation": {
+    "temperature": 0.7,
+    "max_output_tokens": 1200,
+    "target_words": 500
+  }
+}
+```
+
+For an output around 5000 words:
+
+```json
+{
+  "generation": {
+    "temperature": 0.7,
+    "max_output_tokens": 9000,
+    "target_words": 5000
+  }
+}
+```
+
+Important:
+
+- Keep `max_output_tokens` high enough for long outputs, otherwise the model may truncate.
+- `target_words`, `min_words`, and `max_words` are editorial controls used in the prompt; they are not forwarded to provider API config.
 
 ### 2) Install dependencies
 
@@ -117,6 +206,41 @@ If `TELEGRAM_WEBHOOK_SECRET` is set, the header `X-Telegram-Bot-Api-Secret-Token
 Environment diagnostics endpoint:
 
 - `GET /health/env`
+
+## Provider-Agnostic Delivery with GitHub Actions
+
+This repository now includes CI/CD workflows that keep you independent from a specific hosting provider.
+
+- CI workflow: `.github/workflows/ci.yml`
+- Release workflow: `.github/workflows/release-artifacts.yml`
+- Container image: `ghcr.io/<owner>/roadtocore-core`
+
+### What gets produced
+
+- A Docker image for the core API is built and pushed to GitHub Container Registry (GHCR).
+- A ZIP artifact for the WordPress adapter is generated and uploaded in workflow artifacts.
+
+### Why this is hosting-independent
+
+Any provider that supports Docker can run the same immutable image by pulling from GHCR.
+You can deploy on VPS, managed container services, Kubernetes, or your own server without changing the build pipeline.
+
+### Suggested production run command
+
+```bash
+docker run -d \
+  --name roadtocore \
+  -p 8080:8080 \
+  --env-file /path/to/core.env \
+  -v /path/to/outbox:/app/outbox \
+  ghcr.io/<owner>/roadtocore-core:latest
+```
+
+### Required GitHub settings
+
+- Ensure GitHub Actions is enabled for the repository.
+- Ensure package permissions allow publishing to GHCR.
+- Keep secrets in GitHub Secrets (for example provider keys used at runtime on your host, not in the image).
 
 ## WordPress Adapter
 

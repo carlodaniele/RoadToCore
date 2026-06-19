@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install core dependencies
+        run: pip install -r core/requirements.txt
+
+      - name: Compile Python sources
+        run: python -m compileall core
+
+      - name: Validate JSON schema format
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          schema_path = Path('shared/schema.json')
+          data = json.loads(schema_path.read_text(encoding='utf-8'))
+          assert isinstance(data, dict), 'Schema must be a JSON object'
+          assert '$schema' in data, 'Schema must contain $schema'
+          assert 'properties' in data, 'Schema must contain properties'
+          print('Schema validation checks passed')
+          PY
+
+  wordpress-php-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint WordPress adapter PHP files
+        run: |
+          find adapters/wordpress -name '*.php' -print0 | xargs -0 -n1 php -l

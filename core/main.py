@@ -29,6 +29,27 @@ load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 env_report: EnvValidationReport = validate_env_for_runtime()
 
+prompt_base_dir = Path(__file__).parent / "ai" / "prompts"
+ai_config_base_dir = Path(__file__).parent / "ai"
+system_prompt_path = os.getenv(
+    "ROADTOCORE_SYSTEM_PROMPT_FILE",
+    str(prompt_base_dir / "system.prompt.md"),
+).strip()
+generation_prompt_path = os.getenv(
+    "ROADTOCORE_GENERATION_PROMPT_FILE",
+    str(prompt_base_dir / "generation.prompt.md"),
+).strip()
+ai_request_config_path = os.getenv(
+    "ROADTOCORE_AI_REQUEST_CONFIG_FILE",
+    str(ai_config_base_dir / "request_config.json"),
+).strip()
+
+# Prompts are externalized to allow non-code tuning of model behavior.
+system_prompt = AIPipeline.load_prompt_file(system_prompt_path)
+generation_prompt_template = AIPipeline.load_prompt_file(generation_prompt_path)
+# Request-level AI settings (temperature/top_p/etc.) are loaded from JSON.
+ai_request_config = AIPipeline.load_request_config_file(ai_request_config_path)
+
 app = FastAPI(title="RoadToCore Core", version="0.1.0")
 store = TelegramBufferStore()
 pipeline = AIPipeline(
@@ -37,6 +58,9 @@ pipeline = AIPipeline(
     google_api_key=os.getenv("GOOGLE_API_KEY", ""),
     transcription_model=os.getenv("GOOGLE_TRANSCRIPTION_MODEL", "gemini-flash-latest"),
     generation_model=os.getenv("GOOGLE_GENERATION_MODEL", "gemini-flash-latest"),
+    system_prompt=system_prompt,
+    generation_prompt_template=generation_prompt_template,
+    ai_request_config=ai_request_config,
 )
 
 allowed_chat_ids = parse_allowed_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))

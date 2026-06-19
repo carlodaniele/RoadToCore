@@ -6,3 +6,4 @@ httpx==0.28.1
 google-genai==1.31.0
 Pillow==11.3.0
 typing-extensions==4.14.1
+eval_type_backport==0.2.2
