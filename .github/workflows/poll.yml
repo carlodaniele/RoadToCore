@@ -38,3 +38,12 @@ jobs:
           GOOGLE_GENERATION_MODEL: ${{ vars.GOOGLE_GENERATION_MODEL || 'gemini-2.5-flash' }}
           ROADTOCORE_OUTBOX_DIR: /tmp/roadtocore_outbox
         run: python -m core.polling
+
+      - name: Upload outbox artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadtocore-outbox-${{ github.run_id }}
+          path: /tmp/roadtocore_outbox
+          if-no-files-found: ignore
+          retention-days: 7
