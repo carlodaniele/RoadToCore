@@ -289,6 +289,29 @@ class AIPipeline:
                     "token_usage": self._extract_token_usage(response),
                 }
 
+            # Retry once with an even stricter instruction if the first
+            # candidate is not valid JSON.
+            retry_prompt = (
+                "Return ONLY a valid JSON object. "
+                "No markdown, no code fences, no commentary.\n\n"
+                f"Schema:\n{schema_hint_json}\n\n"
+                f"Transcript:\n{transcript}"
+            )
+            retry_response = self._google_client.models.generate_content(
+                model=self.generation_model,
+                contents=[retry_prompt],
+                **request_kwargs,
+            )
+            retry_raw_json = (getattr(retry_response, "text", "") or "").strip()
+            retry_parsed = self._extract_json_from_text(retry_raw_json)
+            if retry_parsed:
+                retry_parsed.setdefault("transcript_full", transcript)
+                return retry_parsed, {
+                    "provider": "google",
+                    "model": self.generation_model,
+                    "token_usage": self._extract_token_usage(retry_response),
+                }
+
         return {
             "title": "RoadToCore Generated Draft",
             "summary": "Automatically generated draft from an incoming Telegram audio message.",
