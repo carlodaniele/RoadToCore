@@ -84,6 +84,16 @@ def parse_photo_message(message: dict[str, Any]) -> tuple[int, list[BufferedImag
 def parse_audio_message(message: dict[str, Any]) -> AudioEvent | None:
     audio = message.get("audio") or message.get("voice")
     if not isinstance(audio, dict):
+        # Telegram can send audio as a generic document depending on client UX.
+        document = message.get("document")
+        if isinstance(document, dict):
+            mime_type = str(document.get("mime_type", "")).lower()
+            file_name = str(document.get("file_name", "")).lower()
+            looks_like_audio_file = file_name.endswith((".mp3", ".m4a", ".ogg", ".wav", ".aac", ".flac"))
+            if mime_type.startswith("audio/") or looks_like_audio_file:
+                audio = document
+
+    if not isinstance(audio, dict):
         return None
 
     chat_id = int(message["chat"]["id"])
