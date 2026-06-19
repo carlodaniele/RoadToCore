@@ -123,6 +123,18 @@ class AIPipeline:
         try:
             parsed = json.loads(content)
         except Exception:
+            # Some providers wrap JSON with prose. Try decoding the first
+            # top-level JSON object found in the text.
+            decoder = json.JSONDecoder()
+            for idx, char in enumerate(content):
+                if char != "{":
+                    continue
+                try:
+                    parsed, _ = decoder.raw_decode(content[idx:])
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    continue
             return None
 
         return parsed if isinstance(parsed, dict) else None
@@ -254,6 +266,13 @@ class AIPipeline:
             request_kwargs: dict[str, Any] = {}
             if generation_config:
                 request_kwargs["config"] = generation_config
+            else:
+                # Force JSON-only output shape when no explicit config is provided.
+                request_kwargs["config"] = {"response_mime_type": "application/json"}
+
+            config_obj = request_kwargs.get("config")
+            if isinstance(config_obj, dict) and "response_mime_type" not in config_obj:
+                config_obj["response_mime_type"] = "application/json"
 
             response = self._google_client.models.generate_content(
                 model=self.generation_model,

@@ -240,6 +240,15 @@ def poll_and_process() -> None:
             outbox_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             idempotency_file.write_text(json.dumps({"event_id": event_id}, indent=2), encoding="utf-8")
 
+            generation_model = str(payload.get("ai_meta", {}).get("model", ""))
+            if "generate:fallback" in generation_model:
+                failed_path = delivery.mark_failed(
+                    outbox_file,
+                    "AI generation returned fallback placeholder content; payload not delivered.",
+                )
+                print(f"  failed: {failed_path}")
+                continue
+
             print(f"  Saved: {event_id} — {payload['content'].get('title', '(no title)')}")
             processed_count += 1
 
