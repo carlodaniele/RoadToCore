@@ -46,6 +46,19 @@ def _get_updates(token: str) -> list[dict[str, Any]]:
     return data.get("result", [])
 
 
+def _delete_webhook(token: str, drop_pending_updates: bool = False) -> None:
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    resp = httpx.post(
+        url,
+        data={"drop_pending_updates": "true" if drop_pending_updates else "false"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"deleteWebhook failed: {data}")
+
+
 def _acknowledge_updates(token: str, max_update_id: int) -> None:
     url = f"https://api.telegram.org/bot{token}/getUpdates"
     httpx.get(url, params={"offset": max_update_id + 1, "limit": 1, "timeout": 0}, timeout=30)
@@ -144,6 +157,11 @@ def poll_and_process() -> None:
     )
 
     telegram_client = TelegramClient(token)
+
+    # --- Ensure polling mode is active (Telegram returns 409 if webhook is set) ---
+    auto_delete_webhook = os.getenv("TELEGRAM_POLLING_AUTO_DELETE_WEBHOOK", "true").strip().lower() == "true"
+    if auto_delete_webhook:
+        _delete_webhook(token, drop_pending_updates=False)
 
     # --- Fetch all pending updates ---
     updates = _get_updates(token)
