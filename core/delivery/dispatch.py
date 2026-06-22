@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -133,39 +135,81 @@ class DeliveryDispatcher:
         if last_error is not None:
             raise last_error
 
+    def _upload_image_to_wordpress(self, client: httpx.Client, file_path: str) -> dict[str, Any] | None:
+        """Upload a local image file to WordPress Media Library.
+
+        Returns dict with 'id' and 'source_url', or None on failure.
+        Similar to nomad-pipeline's upload_media() function.
+        """
+        path = Path(file_path)
+        if not path.exists():
+            print(f"  WARNING: image file not found for upload: {file_path}")
+            return None
+
+        parsed = urlparse(self.config.wp.endpoint)
+        media_endpoint = f"{parsed.scheme}://{parsed.netloc}/wp-json/wp/v2/media"
+
+        content_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+
+        try:
+            with open(path, "rb") as f:
+                image_bytes = f.read()
+
+            response = client.post(
+                media_endpoint,
+                content=image_bytes,
+                auth=(self.config.wp.username, self.config.wp.app_password),
+                headers={
+                    "Content-Disposition": f"attachment; filename={path.name}",
+                    "Content-Type": content_type,
+                },
+                timeout=self.config.wp.timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            print(f"  Uploaded image to WP Media Library: {data.get('source_url')}")
+            return {"id": data["id"], "source_url": data["source_url"]}
+        except Exception as exc:
+            print(f"  WARNING: failed to upload image {file_path} to WordPress: {exc}")
+            return None
+
     def _dispatch_wordpress(self, payload: dict[str, Any]) -> None:
         if not self.config.wp.enabled:
             return
         if not self.config.wp.endpoint:
             raise RuntimeError("WordPress dispatch enabled but endpoint is empty")
 
-        # Convert local asset paths to public HTTP URLs if configured
-        if self.config.wp.assets_public_url:
-            payload_str = json.dumps(payload)
-            # Match patterns like /any/path/outbox/assets/chat_id/event_id/file
-            # and convert to https://assets_url/assets/chat_id/event_id/file
-            payload_str = re.sub(
-                r'[^"]*outbox/assets/([^"]+)',
-                lambda m: f"{self.config.wp.assets_public_url}/assets/{m.group(1)}",
-                payload_str,
-            )
-            payload = json.loads(payload_str)
-
-        # Build and append gallery blocks from image assets
-        images = payload.get("assets", {}).get("images", [])
-        if images:
-            gallery_html = _build_gallery_blocks(images)
-            if gallery_html:
-                # Append gallery blocks to content body
-                content = payload.get("content", {})
-                body = content.get("body", "")
-                # If body is structured sections, convert to flat HTML
-                if isinstance(body, list):
-                    body = ""
-                content["body"] = (body + gallery_html).strip()
-                payload["content"] = content
-
         with httpx.Client(timeout=self.config.wp.timeout) as client:
+            # Upload images to WordPress Media Library and replace local paths with WP URLs
+            images = payload.get("assets", {}).get("images", [])
+            uploaded_images: list[dict[str, Any]] = []
+            for img in images:
+                asset_ref = img.get("asset_ref", "")
+                # Try uploading local file to WP Media Library
+                if asset_ref and not asset_ref.startswith("http"):
+                    wp_media = self._upload_image_to_wordpress(client, asset_ref)
+                    if wp_media:
+                        img = dict(img)
+                        img["url"] = wp_media["source_url"]
+                        img["wp_media_id"] = wp_media["id"]
+                uploaded_images.append(img)
+
+            if uploaded_images:
+                payload = dict(payload)
+                payload["assets"] = dict(payload.get("assets", {}))
+                payload["assets"]["images"] = uploaded_images
+
+            # Build and append gallery blocks from image assets (now with WP URLs)
+            if uploaded_images:
+                gallery_html = _build_gallery_blocks(uploaded_images)
+                if gallery_html:
+                    content = dict(payload.get("content", {}))
+                    body = content.get("body", "")
+                    if isinstance(body, list):
+                        body = ""
+                    content["body"] = (body + gallery_html).strip()
+                    payload["content"] = content
+
             response = client.post(
                 self.config.wp.endpoint,
                 json=payload,
