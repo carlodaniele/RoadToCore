@@ -59,3 +59,55 @@ function roadtocore_build_post_content_from_sections( array $sections ): string 
 
 	return implode( "\n\n", $blocks );
 }
+
+/**
+ * Build Gutenberg gallery blocks from attachment IDs and URLs.
+ *
+ * @param array $attachment_ids List of WP attachment IDs.
+ * @param array $images         Original image asset data (for alt/caption/gps).
+ * @return string
+ */
+function roadtocore_build_gallery_blocks( array $attachment_ids, array $images = array() ): string {
+	if ( empty( $attachment_ids ) ) {
+		return '';
+	}
+
+	$image_blocks = array();
+	foreach ( $attachment_ids as $i => $att_id ) {
+		$url     = wp_get_attachment_url( $att_id );
+		$alt     = isset( $images[ $i ]['alt'] ) ? esc_attr( (string) $images[ $i ]['alt'] ) : '';
+		$caption = isset( $images[ $i ]['caption'] ) ? esc_html( (string) $images[ $i ]['caption'] ) : '';
+
+		// Append GPS coordinates to caption if available
+		if ( isset( $images[ $i ]['gps']['latitude'], $images[ $i ]['gps']['longitude'] ) ) {
+			$lat      = round( (float) $images[ $i ]['gps']['latitude'], 4 );
+			$lon      = round( (float) $images[ $i ]['gps']['longitude'], 4 );
+			$gps_text = "({$lat}, {$lon})";
+			$caption  = $caption ? "{$caption} {$gps_text}" : $gps_text;
+		}
+
+		$figcaption = $caption ? "<figcaption class=\"wp-element-caption\">{$caption}</figcaption>" : '';
+
+		$image_blocks[] = sprintf(
+			'<!-- wp:image {"id":%d,"lightbox":{"enabled":true},"sizeSlug":"large","linkDestination":"none"} -->' .
+			'<figure class="wp-block-image size-large"><img src="%s" alt="%s" class="wp-image-%d"/>%s</figure>' .
+			'<!-- /wp:image -->',
+			$att_id,
+			esc_url( $url ),
+			$alt,
+			$att_id,
+			$figcaption
+		);
+	}
+
+	if ( count( $image_blocks ) === 1 ) {
+		return "\n\n" . $image_blocks[0];
+	}
+
+	$inner = implode( "\n", $image_blocks );
+	return "\n\n<!-- wp:gallery {\"linkTo\":\"none\"} -->\n" .
+		"<figure class=\"wp-block-gallery has-nested-images columns-default is-cropped\">\n" .
+		$inner . "\n" .
+		"</figure>\n" .
+		"<!-- /wp:gallery -->";
+}

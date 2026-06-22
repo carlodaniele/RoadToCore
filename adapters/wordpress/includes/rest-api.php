@@ -235,9 +235,24 @@ function roadtocore_rest_receive( \WP_REST_Request $request ) {
 			continue;
 		}
 
+		$caption = isset( $image['caption'] ) ? (string) $image['caption'] : '';
+		$alt     = isset( $image['alt'] ) ? (string) $image['alt'] : '';
+
+		// Use wp_media_id if the image was already uploaded by the dispatcher
+		if ( ! empty( $image['wp_media_id'] ) ) {
+			$att_id = (int) $image['wp_media_id'];
+			if ( '' !== $alt ) {
+				update_post_meta( $att_id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
+			}
+			$attachment_ids[] = $att_id;
+			continue;
+		}
+
+		// Fallback: try to download from asset_ref (URL only, not local paths)
 		$asset_ref = isset( $image['asset_ref'] ) ? (string) $image['asset_ref'] : '';
-		$caption   = isset( $image['caption'] ) ? (string) $image['caption'] : '';
-		$alt       = isset( $image['alt'] ) ? (string) $image['alt'] : '';
+		if ( '' === $asset_ref || ! preg_match( '#^https?://#i', $asset_ref ) ) {
+			continue;
+		}
 
 		$attachment_id = roadtocore_upload_image_from_asset_ref( $asset_ref, (int) $post_id, $caption, $alt );
 		if ( is_wp_error( $attachment_id ) ) {
@@ -247,8 +262,21 @@ function roadtocore_rest_receive( \WP_REST_Request $request ) {
 		$attachment_ids[] = (int) $attachment_id;
 	}
 
-	if ( ! empty( $attachment_ids ) && ! has_post_thumbnail( (int) $post_id ) ) {
-		set_post_thumbnail( (int) $post_id, $attachment_ids[0] );
+	if ( ! empty( $attachment_ids ) ) {
+		// Set featured image
+		if ( ! has_post_thumbnail( (int) $post_id ) ) {
+			set_post_thumbnail( (int) $post_id, $attachment_ids[0] );
+		}
+
+		// Append gallery blocks to post content
+		$gallery_html = roadtocore_build_gallery_blocks( $attachment_ids, $images );
+		if ( '' !== $gallery_html ) {
+			$current_content = get_post_field( 'post_content', (int) $post_id );
+			wp_update_post( array(
+				'ID'           => (int) $post_id,
+				'post_content' => $current_content . $gallery_html,
+			) );
+		}
 	}
 
 	return rest_ensure_response(
