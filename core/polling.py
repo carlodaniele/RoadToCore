@@ -80,19 +80,27 @@ def _download_images(
         if not file_id:
             continue
         try:
+            print(f"    [IMAGES] Image {index + 1}: Downloading from Telegram...")
             downloaded = telegram_client.download_file(file_id)
+            print(f"    [IMAGES] Image {index + 1}: Downloaded ({len(downloaded.content)} bytes)")
             
             # Extract EXIF metadata (GPS, orientation) before processing
+            print(f"    [IMAGES] Image {index + 1}: Extracting EXIF metadata...")
             exif_meta = extract_exif_metadata(downloaded.content)
+            has_gps = exif_meta.latitude is not None and exif_meta.longitude is not None
+            gps_info = f"GPS({exif_meta.latitude:.4f}, {exif_meta.longitude:.4f})" if has_gps else "No GPS"
+            print(f"    [IMAGES] Image {index + 1}: EXIF parsed - {gps_info}")
             
             # Rotate based on EXIF orientation + optimize
+            print(f"    [IMAGES] Image {index + 1}: Rotating and optimizing...")
             rotated_bytes = rotate_image_by_exif(downloaded.content)
             optimized_bytes = optimize_image(rotated_bytes)
+            print(f"    [IMAGES] Image {index + 1}: Optimized ({len(optimized_bytes)} bytes)")
             
             suffix = Path(downloaded.file_path).suffix or ".jpg"
             file_path = event_assets_dir / f"image-{index + 1}{suffix}"
             file_path.write_bytes(optimized_bytes)
-            
+            print(f"    [IMAGES] Image {index + 1}: Saved to {file_path}\")\n            
             asset_dict: dict[str, Any] = {
                 "asset_ref": str(file_path.resolve()),
                 "caption": "",
@@ -102,7 +110,7 @@ def _download_images(
             }
             
             # Add GPS coordinates if available
-            if exif_meta.latitude is not None and exif_meta.longitude is not None:
+            if has_gps:
                 asset_dict["gps"] = {
                     "latitude": exif_meta.latitude,
                     "longitude": exif_meta.longitude,
@@ -110,16 +118,17 @@ def _download_images(
             
             image_assets.append(asset_dict)
         except Exception as exc:
-            print(f"  WARNING: could not download image {file_id}: {exc}")
+            print(f"    [IMAGES] ERROR: Could not download image {file_id}: {exc}")
     return image_assets
 
 
 def poll_and_process() -> None:
+    print("[POLLING] Starting Telegram polling worker...")
     load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
     token = os.getenv("TELEGRAM_TOKEN", "").strip()
     if not token:
-        print("ERROR: TELEGRAM_TOKEN not set")
+        print("[ERROR] TELEGRAM_TOKEN not set")
         sys.exit(1)
 
     allowed_chat_ids = parse_allowed_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))
@@ -180,15 +189,18 @@ def poll_and_process() -> None:
     # --- Ensure polling mode is active (Telegram returns 409 if webhook is set) ---
     auto_delete_webhook = os.getenv("TELEGRAM_POLLING_AUTO_DELETE_WEBHOOK", "true").strip().lower() == "true"
     if auto_delete_webhook:
+        print("[POLLING] Ensuring polling mode (deleting webhook)...")
         _delete_webhook(token, drop_pending_updates=False)
+        print("[POLLING] Webhook deleted, polling mode active.")
 
     # --- Fetch all pending updates ---
+    print("[POLLING] Fetching Telegram updates...")
     updates = _get_updates(token)
     if not updates:
-        print("No pending updates.")
+        print("[POLLING] No pending updates.")
         return
 
-    print(f"Fetched {len(updates)} update(s).")
+    print(f"[POLLING] Fetched {len(updates)} update(s).")
 
     # --- Group images and audio events by chat_id (preserving arrival order) ---
     images_by_chat: dict[int, list] = {}
@@ -223,17 +235,20 @@ def poll_and_process() -> None:
             idempotency_file = idempotency_dir / f"{idempotency_key}.json"
 
             if idempotency_file.exists():
-                print(f"  Skipping duplicate: message_id={audio_event.message_id}")
+                print(f"  [POLLING] Skipping duplicate: message_id={audio_event.message_id}")
                 continue
 
-            print(f"  Processing audio: chat={chat_id} message_id={audio_event.message_id}")
+            print(f"  [POLLING] Processing audio: chat={chat_id} message_id={audio_event.message_id}")
 
+            print(f"  [TELEGRAM] Downloading audio file (file_id={audio_event.file_id}...)...")
             try:
                 downloaded_audio = telegram_client.download_file(audio_event.file_id)
+                print(f"  [TELEGRAM] Audio downloaded: {len(downloaded_audio.content)} bytes")
             except Exception as exc:
-                print(f"  ERROR: could not download audio: {exc}")
+                print(f"  [ERROR] Could not download audio: {exc}")
                 continue
 
+            print(f"  [AI] Starting AI pipeline (transcription + generation)...")
             payload = pipeline.process(
                 audio_event=audio_event,
                 images=buffered_images,
@@ -241,19 +256,24 @@ def poll_and_process() -> None:
                 audio_bytes=downloaded_audio.content,
                 audio_mime_type=downloaded_audio.mime_type,
             )
+            print(f"  [AI] Pipeline complete.")
 
             event_id = payload["event_id"]
 
             # Download and store images into ephemeral assets dir
             if buffered_images:
+                print(f"  [IMAGES] Processing {len(buffered_images)} image(s) from batch...")
                 image_assets = _download_images(
                     telegram_client, buffered_images, assets_dir, chat_id, event_id
                 )
                 if image_assets:
                     payload["assets"]["images"] = image_assets
+                    print(f"  [IMAGES] Processed {len(image_assets)} image(s) with EXIF/GPS extraction.")
 
+            print(f"  [VALIDATE] Normalizing and validating payload...")
             payload = normalize_payload(payload)
             validate_payload(payload)
+            print(f"  [VALIDATE] Payload valid.")
 
             outbox_file = outbox_dir / f"{event_id}.json"
             outbox_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -261,27 +281,32 @@ def poll_and_process() -> None:
 
             generation_model = str(payload.get("ai_meta", {}).get("model", ""))
             if "generate:fallback" in generation_model:
+                print(f"  [WARNING] AI generation returned fallback model; skipping delivery.")
                 failed_path = delivery.mark_failed(
                     outbox_file,
                     "AI generation returned fallback placeholder content; payload not delivered.",
                 )
-                print(f"  failed: {failed_path}")
+                print(f"  [POLLING] failed: {failed_path}")
                 continue
 
-            print(f"  Saved: {event_id} — {payload['content'].get('title', '(no title)')}")
+            print(f"  [POLLING] Saved: {event_id} — {payload['content'].get('title', '(no title)')}")
             processed_count += 1
 
     # --- Deliver all pending payloads ---
     if processed_count > 0:
-        print(f"Delivering {processed_count} payload(s) to WordPress...")
+        print(f"[DELIVERY] Delivering {processed_count} payload(s) to WordPress...")
         results = deliver_pending_outbox(delivery, outbox_dir)
         for r in results:
-            print(f"  {r['status']}: {r['path']}")
+            print(f"  [DELIVERY] {r['status']}: {r['path']}")
+    else:
+        print(f"[POLLING] No new payloads to deliver.")
 
     # --- Acknowledge all updates so Telegram won't resend them ---
     max_update_id = max(u["update_id"] for u in updates)
+    print(f"[POLLING] Acknowledging {len(updates)} update(s) up to {max_update_id}...")
     _acknowledge_updates(token, max_update_id)
-    print(f"Acknowledged updates up to {max_update_id}.")
+    print(f"[POLLING] Acknowledged updates up to {max_update_id}.") 
+    print(f"[POLLING] Workflow complete.")
 
 
 if __name__ == "__main__":

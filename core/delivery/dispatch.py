@@ -143,7 +143,7 @@ class DeliveryDispatcher:
         """
         path = Path(file_path)
         if not path.exists():
-            print(f"  WARNING: image file not found for upload: {file_path}")
+            print(f"    [WORDPRESS] WARNING: image file not found: {file_path}")
             return None
 
         parsed = urlparse(self.config.wp.endpoint)
@@ -155,6 +155,7 @@ class DeliveryDispatcher:
             with open(path, "rb") as f:
                 image_bytes = f.read()
 
+            print(f"    [WORDPRESS] Uploading image: {path.name} ({len(image_bytes)} bytes, {content_type})...")
             response = client.post(
                 media_endpoint,
                 content=image_bytes,
@@ -167,10 +168,12 @@ class DeliveryDispatcher:
             )
             response.raise_for_status()
             data = response.json()
-            print(f"  Uploaded image to WP Media Library: {data.get('source_url')}")
-            return {"id": data["id"], "source_url": data["source_url"]}
+            media_id = data.get('id')
+            source_url = data.get('source_url')
+            print(f"    [WORDPRESS] Image uploaded: {source_url} (ID: {media_id})")
+            return {"id": media_id, "source_url": source_url}
         except Exception as exc:
-            print(f"  WARNING: failed to upload image {file_path} to WordPress: {exc}")
+            print(f"    [WORDPRESS] ERROR: Failed to upload {file_path}: {exc}")
             return None
 
     def _dispatch_wordpress(self, payload: dict[str, Any]) -> None:
@@ -179,14 +182,21 @@ class DeliveryDispatcher:
         if not self.config.wp.endpoint:
             raise RuntimeError("WordPress dispatch enabled but endpoint is empty")
 
+        event_id = payload.get("event_id", "unknown")
+        print(f"  [DISPATCH] Starting WordPress dispatch for event {event_id}...")
+        
         with httpx.Client(timeout=self.config.wp.timeout) as client:
             # Upload images to WordPress Media Library and replace local paths with WP URLs
             images = payload.get("assets", {}).get("images", [])
+            image_count = len(images)
+            print(f"  [DISPATCH] Processing {image_count} image(s) for upload...")
+            
             uploaded_images: list[dict[str, Any]] = []
-            for img in images:
+            for idx, img in enumerate(images, 1):
                 asset_ref = img.get("asset_ref", "")
                 # Try uploading local file to WP Media Library
                 if asset_ref and not asset_ref.startswith("http"):
+                    print(f"  [DISPATCH] Image {idx}/{image_count}: uploading local file...")
                     wp_media = self._upload_image_to_wordpress(client, asset_ref)
                     if wp_media:
                         img = dict(img)
@@ -201,6 +211,7 @@ class DeliveryDispatcher:
 
             # Build and append gallery blocks from image assets (now with WP URLs)
             if uploaded_images:
+                print(f"  [DISPATCH] Building gallery blocks for {len(uploaded_images)} image(s)...")
                 gallery_html = _build_gallery_blocks(uploaded_images)
                 if gallery_html:
                     content = dict(payload.get("content", {}))
@@ -209,7 +220,9 @@ class DeliveryDispatcher:
                         body = ""
                     content["body"] = (body + gallery_html).strip()
                     payload["content"] = content
+                    print(f"  [DISPATCH] Gallery blocks appended.")
 
+            print(f"  [DISPATCH] Sending payload to WordPress endpoint...")
             response = client.post(
                 self.config.wp.endpoint,
                 json=payload,
@@ -217,6 +230,7 @@ class DeliveryDispatcher:
                 headers={"content-type": "application/json"},
             )
             response.raise_for_status()
+            print(f"  [DISPATCH] WordPress dispatch successful (HTTP {response.status_code}).")
 
     def _dispatch_astro(self, payload_path: Path) -> None:
         if not self.config.astro.enabled:
@@ -245,6 +259,8 @@ class DeliveryDispatcher:
 
     def dispatch_payload(self, payload_path: Path) -> dict[str, Any]:
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        event_id = payload.get("event_id", "unknown")
+        print(f"[DISPATCH] Dispatching event {event_id}...")
 
         def _run_wp() -> None:
             self._dispatch_wordpress(payload)
@@ -252,17 +268,22 @@ class DeliveryDispatcher:
         def _run_astro() -> None:
             self._dispatch_astro(payload_path)
 
-        self._attempt_with_retry(_run_wp, self.config.retries, self.config.retry_backoff_seconds)
-        self._attempt_with_retry(_run_astro, self.config.retries, self.config.retry_backoff_seconds)
+        try:
+            self._attempt_with_retry(_run_wp, self.config.retries, self.config.retry_backoff_seconds)
+            self._attempt_with_retry(_run_astro, self.config.retries, self.config.retry_backoff_seconds)
 
-        destination = self.delivered_dir / payload_path.name
-        payload_path.replace(destination)
+            destination = self.delivered_dir / payload_path.name
+            payload_path.replace(destination)
+            print(f"[DISPATCH] delivered: {destination}")
 
-        return {
-            "status": "delivered",
-            "event_id": payload.get("event_id"),
-            "path": str(destination),
-        }
+            return {
+                "status": "delivered",
+                "event_id": event_id,
+                "path": str(destination),
+            }
+        except Exception as exc:
+            print(f"[DISPATCH] ERROR: Dispatch failed for {event_id}: {exc}")
+            raise
 
     def mark_failed(self, payload_path: Path, reason: str) -> str:
         failed_path = self.failed_dir / payload_path.name
