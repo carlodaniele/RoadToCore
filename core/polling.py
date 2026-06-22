@@ -100,7 +100,8 @@ def _download_images(
             suffix = Path(downloaded.file_path).suffix or ".jpg"
             file_path = event_assets_dir / f"image-{index + 1}{suffix}"
             file_path.write_bytes(optimized_bytes)
-            print(f"    [IMAGES] Image {index + 1}: Saved to {file_path}\")\n            
+            print(f"    [IMAGES] Image {index + 1}: Saved to {file_path}")
+            
             asset_dict: dict[str, Any] = {
                 "asset_ref": str(file_path.resolve()),
                 "caption": "",
