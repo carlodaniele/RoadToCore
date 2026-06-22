@@ -1,10 +1,8 @@
 name: Telegram Poll
 
 on:
-  schedule:
-    # Runs every 5 minutes (minimum interval allowed by GitHub Actions).
-    - cron: '*/5 * * * *'
-  # Allow manual trigger from the Actions tab.
+  repository_dispatch:
+    types: [telegram_audio_received]
   workflow_dispatch:
 
 jobs:

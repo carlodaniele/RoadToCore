@@ -8,6 +8,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
+import httpx
 
 from core.ai.pipeline import AIPipeline
 from core.config.env_validation import EnvValidationReport, validate_env_for_runtime
@@ -66,6 +67,8 @@ pipeline = AIPipeline(
 allowed_chat_ids = parse_allowed_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS"))
 webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 telegram_token = os.getenv("TELEGRAM_TOKEN", "").strip()
+github_token = os.getenv("GITHUB_TOKEN", "").strip()
+github_repo = os.getenv("GITHUB_REPO", "").strip()
 outbox_dir = Path(os.getenv("ROADTOCORE_OUTBOX_DIR", "./outbox"))
 outbox_dir.mkdir(parents=True, exist_ok=True)
 assets_dir = Path(os.getenv("ROADTOCORE_ASSETS_DIR", str(outbox_dir / "assets")))
@@ -295,9 +298,35 @@ def telegram_webhook(
     if os.getenv("DELIVERY_AUTORUN", "false").lower() == "true":
         deliver_pending_outbox(delivery, outbox_dir)
 
+    # Trigger GitHub Actions workflow if configured
+    if github_token and github_repo:
+        try:
+            _trigger_github_workflow(github_token, github_repo, payload["event_id"])
+        except Exception as exc:
+            print(f"WARNING: Could not trigger GitHub workflow: {exc}")
+
     return {
         "status": "processed",
         "event_id": payload["event_id"],
         "idempotency_key": payload["idempotency_key"],
         "output_path": output_path,
     }
+
+
+def _trigger_github_workflow(github_token: str, repo: str, event_id: str) -> None:
+    """Trigger the polling workflow via GitHub repository_dispatch."""
+    url = f"https://api.github.com/repos/{repo}/dispatches"
+    with httpx.Client() as client:
+        response = client.post(
+            url,
+            json={
+                "event_type": "telegram_audio_received",
+                "client_payload": {"event_id": event_id},
+            },
+            headers={
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
