@@ -147,6 +147,18 @@
               "height": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "gps": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "latitude": {
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "type": "number"
+                  }
+                }
               }
             }
           },

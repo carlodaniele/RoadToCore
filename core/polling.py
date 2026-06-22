@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from core.ai.pipeline import AIPipeline
 from core.delivery.dispatch import AstroConfig, DeliveryConfig, DeliveryDispatcher, WordPressConfig
 from core.delivery.outbox_worker import deliver_pending_outbox
+from core.output.exif import extract_exif_metadata, optimize_image, rotate_image_by_exif
 from core.output.schema import normalize_payload, validate_payload
 from core.telegram.client import TelegramClient
 from core.telegram.webhook import (
@@ -80,16 +81,34 @@ def _download_images(
             continue
         try:
             downloaded = telegram_client.download_file(file_id)
+            
+            # Extract EXIF metadata (GPS, orientation) before processing
+            exif_meta = extract_exif_metadata(downloaded.content)
+            
+            # Rotate based on EXIF orientation + optimize
+            rotated_bytes = rotate_image_by_exif(downloaded.content)
+            optimized_bytes = optimize_image(rotated_bytes)
+            
             suffix = Path(downloaded.file_path).suffix or ".jpg"
             file_path = event_assets_dir / f"image-{index + 1}{suffix}"
-            file_path.write_bytes(downloaded.content)
-            image_assets.append({
+            file_path.write_bytes(optimized_bytes)
+            
+            asset_dict: dict[str, Any] = {
                 "asset_ref": str(file_path.resolve()),
                 "caption": "",
                 "alt": "",
                 "width": getattr(image, "width", None),
                 "height": getattr(image, "height", None),
-            })
+            }
+            
+            # Add GPS coordinates if available
+            if exif_meta.latitude is not None and exif_meta.longitude is not None:
+                asset_dict["gps"] = {
+                    "latitude": exif_meta.latitude,
+                    "longitude": exif_meta.longitude,
+                }
+            
+            image_assets.append(asset_dict)
         except Exception as exc:
             print(f"  WARNING: could not download image {file_id}: {exc}")
     return image_assets

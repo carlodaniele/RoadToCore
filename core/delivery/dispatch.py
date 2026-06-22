@@ -39,6 +39,77 @@ class DeliveryConfig:
     astro: AstroConfig
 
 
+def _build_gallery_blocks(images: list[dict[str, Any]]) -> str:
+    """Build Gutenberg gallery blocks from image assets.
+    
+    Similar to nomad-pipeline's gallery construction logic.
+    Supports GPS coordinates in image metadata.
+    
+    Args:
+        images: List of image dicts with asset_ref, url, alt, caption, gps.
+    
+    Returns:
+        HTML string with Gutenberg gallery/image blocks.
+    """
+    if not images:
+        return ""
+    
+    gallery_html = ""
+    
+    if len(images) > 1:
+        # Multi-image gallery
+        gallery_html = '\n\n<!-- wp:gallery {"linkTo":"none"} -->\n'
+        gallery_html += '<figure class="wp-block-gallery has-nested-images columns-default is-cropped">\n'
+        
+        for img in images:
+            img_url = img.get("url", img.get("asset_ref", ""))
+            img_alt = img.get("alt", "")
+            img_caption = img.get("caption", "")
+            
+            # Add GPS metadata as comment if available
+            gps_comment = ""
+            if img.get("gps"):
+                lat = img["gps"].get("latitude")
+                lon = img["gps"].get("longitude")
+                if lat is not None and lon is not None:
+                    gps_comment = f" (📍 {lat:.4f}, {lon:.4f})"
+            
+            gallery_html += f'<!-- wp:image {{"lightbox":{{"enabled":true}},"linkDestination":"none"}} -->\n'
+            gallery_html += f'<figure class="wp-block-image size-large">'
+            gallery_html += f'<img src="{img_url}" alt="{img_alt}" />'
+            if img_caption:
+                gallery_html += f'<figcaption class="wp-element-caption">{img_caption}{gps_comment}</figcaption>'
+            gallery_html += '</figure>\n'
+            gallery_html += '<!-- /wp:image -->\n'
+        
+        gallery_html += '</figure>\n'
+        gallery_html += '<!-- /wp:gallery -->\n'
+    
+    elif len(images) == 1:
+        # Single image
+        img = images[0]
+        img_url = img.get("url", img.get("asset_ref", ""))
+        img_alt = img.get("alt", "")
+        img_caption = img.get("caption", "")
+        
+        gps_comment = ""
+        if img.get("gps"):
+            lat = img["gps"].get("latitude")
+            lon = img["gps"].get("longitude")
+            if lat is not None and lon is not None:
+                gps_comment = f" (📍 {lat:.4f}, {lon:.4f})"
+        
+        gallery_html = '\n\n<!-- wp:image {"lightbox":{"enabled":true},"linkDestination":"none"} -->\n'
+        gallery_html += '<figure class="wp-block-image size-large">'
+        gallery_html += f'<img src="{img_url}" alt="{img_alt}" />'
+        if img_caption:
+            gallery_html += f'<figcaption class="wp-element-caption">{img_caption}{gps_comment}</figcaption>'
+        gallery_html += '</figure>\n'
+        gallery_html += '<!-- /wp:image -->\n'
+    
+    return gallery_html
+
+
 class DeliveryDispatcher:
     def __init__(self, config: DeliveryConfig, outbox_dir: Path) -> None:
         self.config = config
@@ -79,6 +150,20 @@ class DeliveryDispatcher:
                 payload_str,
             )
             payload = json.loads(payload_str)
+
+        # Build and append gallery blocks from image assets
+        images = payload.get("assets", {}).get("images", [])
+        if images:
+            gallery_html = _build_gallery_blocks(images)
+            if gallery_html:
+                # Append gallery blocks to content body
+                content = payload.get("content", {})
+                body = content.get("body", "")
+                # If body is structured sections, convert to flat HTML
+                if isinstance(body, list):
+                    body = ""
+                content["body"] = (body + gallery_html).strip()
+                payload["content"] = content
 
         with httpx.Client(timeout=self.config.wp.timeout) as client:
             response = client.post(
