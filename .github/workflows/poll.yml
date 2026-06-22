@@ -1,6 +1,9 @@
 name: Telegram Poll
 
 on:
+  schedule:
+    # Runs every 5 minutes as fallback (minimum interval allowed by GitHub Actions).
+    - cron: '*/5 * * * *'
   repository_dispatch:
     types: [telegram_audio_received]
   workflow_dispatch:
