@@ -2,7 +2,7 @@
 /**
  * Plugin Name: RoadToCore Adapter
  * Description: Receives RoadToCore payloads and publishes WordPress drafts.
- * Version: 0.1.1
+ * Version: 0.2.0
  * Requires at least: 7.0
  * Requires PHP: 8.0
  * Author: RoadToCore
