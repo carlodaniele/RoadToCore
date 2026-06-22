@@ -363,6 +363,90 @@ node dist/index.js \
   --assets-dir /absolute/path/to/local/assets
 ```
 
+## Debugging & Monitoring
+
+The workflow is instrumented with **8 checkpoint phases** that emit structured logs, making it easy to identify where anomalies occur when the workflow fails.
+
+### Workflow Phases & Log Markers
+
+Each phase emits logs with a prefix to indicate which step is executing:
+
+| Phase | Marker | What's Happening | Common Failure Points |
+|-------|--------|------------------|----------------------|
+| 1. Polling Setup | `[POLLING]` | Initialize worker, delete webhook, fetch Telegram updates | TELEGRAM_TOKEN missing/invalid |
+| 2. Telegram Download | `[TELEGRAM]` | Download audio and image files from Telegram API | Network timeout, file not found |
+| 3. Image Processing | `[IMAGES]` | Extract EXIF, rotate, optimize, and validate images | Corrupted image data, unsupported format |
+| 4. AI Pipeline | `[AI]` + `[TRANSCRIPTION]` + `[GENERATION]` | Transcribe audio and generate structured content | API key invalid, quota exceeded, malformed response |
+| 5. Validation | `[VALIDATE]` | Normalize and validate payload against schema | Missing required fields, invalid JSON |
+| 6. Outbox | `[OUTBOX]` | Queue payload for delivery to destination adapters | Disk write errors |
+| 7. Dispatch | `[DISPATCH]` + `[WORDPRESS]` | Upload images to WordPress Media Library, build gallery blocks, send payload | WP auth failed, endpoint unreachable, malformed blocks |
+| 8. Completion | `[POLLING]` | Acknowledge Telegram updates, clean up, report completion | Update acknowledgment failed |
+
+### Example Workflow Output
+
+When the workflow runs successfully, you'll see logs like:
+
+```
+[POLLING] Starting Telegram polling worker...
+[POLLING] Ensuring polling mode (deleting webhook)...
+[POLLING] Webhook deleted, polling mode active.
+[POLLING] Fetching Telegram updates...
+[POLLING] Fetched 2 update(s).
+  [POLLING] Processing audio: chat=*** message_id=56
+  [TELEGRAM] Downloading audio file (file_id=...)...
+  [TELEGRAM] Audio downloaded: 245123 bytes
+  [AI] Starting AI pipeline (transcription + generation)...
+    [TRANSCRIPTION] Starting transcription (245123 bytes, audio/ogg)...
+    [TRANSCRIPTION] Complete (3420ms, 512 chars, tokens in=1234 out=567)
+    [GENERATION] Starting content generation (512 chars, 1 image(s))...
+    [GENERATION] Complete (2156ms, tokens in=890 out=345)
+  [AI] Pipeline complete.
+  [IMAGES] Processing 1 image(s) from batch...
+    [IMAGES] Image 1: Downloading from Telegram...
+    [IMAGES] Image 1: Downloaded (567890 bytes)
+    [IMAGES] Image 1: Extracting EXIF metadata...
+    [IMAGES] Image 1: EXIF parsed - GPS(45.1234, 7.5678)
+    [IMAGES] Image 1: Rotating and optimizing...
+    [IMAGES] Image 1: Optimized (234567 bytes)
+    [IMAGES] Image 1: Saved to /tmp/roadtocore_outbox/assets/5534984149/uuid/image-1.jpg
+  [IMAGES] Processed 1 image(s) with EXIF/GPS extraction.
+  [VALIDATE] Normalizing and validating payload...
+  [VALIDATE] Payload valid.
+  [POLLING] Saved: uuid — Article Title
+[DELIVERY] Delivering 1 payload(s) to WordPress...
+[OUTBOX] Found 1 pending payload(s) to deliver...
+[OUTBOX] Delivering payload 1/1: uuid.json...
+[DISPATCH] Dispatching event uuid...
+  [DISPATCH] Starting WordPress dispatch for event uuid...
+  [DISPATCH] Processing 1 image(s) for upload...
+  [DISPATCH] Image 1/1: uploading local file...
+    [WORDPRESS] Uploading image: image-1.jpg (234567 bytes, image/jpeg)...
+    [WORDPRESS] Image uploaded: https://example.com/wp-content/uploads/2026/06/image-1.jpg (ID: 123)
+  [DISPATCH] Building gallery blocks for 1 image(s)...
+  [DISPATCH] Gallery blocks appended.
+  [DISPATCH] Sending payload to WordPress endpoint...
+  [DISPATCH] WordPress dispatch successful (HTTP 200).
+[DISPATCH] delivered: /tmp/roadtocore_outbox/.delivered/uuid.json
+[POLLING] Acknowledged 2 update(s) up to 797716227.
+[POLLING] Workflow complete.
+```
+
+### How to Interpret Errors
+
+When the workflow fails, look for:
+
+1. **`[ERROR]` lines** — immediate problem indicator (e.g., missing token, authentication failed).
+2. **Phase where logs stop** — indicates which component failed (e.g., logs stop at `[TRANSCRIPTION]` → AI provider issue).
+3. **Last successful phase** — helps narrow troubleshooting scope.
+
+Examples:
+
+- **Logs stop after `[TELEGRAM]`**: Check Telegram API key, network connectivity.
+- **Logs stop after `[IMAGES]`**: Check image format support, EXIF parsing errors, disk space.
+- **Logs stop after `[TRANSCRIPTION]`**: Check Google API key, model availability, quota limits.
+- **Logs stop after `[VALIDATE]`**: Check schema compatibility, payload structure.
+- **Logs stop after `[WORDPRESS]`**: Check WordPress credentials, endpoint URL, REST API permissions.
+
 ## Current Limitations
 
 - Google AI integration requires valid API key and model availability.
