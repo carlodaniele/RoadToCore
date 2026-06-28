@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from hashlib import sha256
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 
@@ -22,31 +25,93 @@ class AudioEvent:
     file_unique_id: str | None = None
 
 
-@dataclass
-class ChatBuffer:
-    images: list[BufferedImage] = field(default_factory=list)
-
-
 class TelegramBufferStore:
-    """In-memory buffer keyed by chat_id.
+    """Persistent per-chat image buffer backed by filesystem JSON files."""
 
-    This is enough for local development. A shared store (Redis/Postgres)
-    can replace it in production.
-    """
+    def __init__(self, buffer_dir: Path | None = None) -> None:
+        if buffer_dir is None:
+            outbox_dir = Path(os.getenv("ROADTOCORE_OUTBOX_DIR", "./outbox"))
+            buffer_dir = outbox_dir / "intake" / "buffer"
+        self._buffer_dir = Path(buffer_dir)
+        self._buffer_dir.mkdir(parents=True, exist_ok=True)
 
-    def __init__(self) -> None:
-        self._by_chat: dict[int, ChatBuffer] = {}
+    def _chat_buffer_file(self, chat_id: int) -> Path:
+        return self._buffer_dir / f"{chat_id}.json"
+
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+
+    @staticmethod
+    def _decode_images(payload: dict[str, Any]) -> list[BufferedImage]:
+        decoded: list[BufferedImage] = []
+        for image in payload.get("images", []):
+            if not isinstance(image, dict):
+                continue
+            file_id = str(image.get("file_id", "")).strip()
+            if not file_id:
+                continue
+            try:
+                message_id = int(image.get("message_id", 0))
+            except Exception:
+                message_id = 0
+
+            decoded.append(
+                BufferedImage(
+                    message_id=message_id,
+                    file_id=file_id,
+                    file_unique_id=str(image.get("file_unique_id")) if image.get("file_unique_id") else None,
+                    width=int(image["width"]) if image.get("width") is not None else None,
+                    height=int(image["height"]) if image.get("height") is not None else None,
+                )
+            )
+        return decoded
+
+    def _read_chat_images(self, chat_id: int) -> list[BufferedImage]:
+        chat_file = self._chat_buffer_file(chat_id)
+        if not chat_file.exists():
+            return []
+
+        try:
+            payload = json.loads(chat_file.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+        if not isinstance(payload, dict):
+            return []
+        return self._decode_images(payload)
 
     def add_images(self, chat_id: int, images: list[BufferedImage]) -> None:
-        if chat_id not in self._by_chat:
-            self._by_chat[chat_id] = ChatBuffer()
-        self._by_chat[chat_id].images.extend(images)
+        existing_images = self._read_chat_images(chat_id)
+        all_images = [*existing_images, *images]
+        payload = {
+            "chat_id": chat_id,
+            "images": [
+                {
+                    "message_id": image.message_id,
+                    "file_id": image.file_id,
+                    "file_unique_id": image.file_unique_id,
+                    "width": image.width,
+                    "height": image.height,
+                }
+                for image in all_images
+            ],
+        }
+        self._write_json_atomic(self._chat_buffer_file(chat_id), payload)
+
+    def peek_images(self, chat_id: int) -> list[BufferedImage]:
+        return self._read_chat_images(chat_id)
+
+    def clear_images(self, chat_id: int) -> None:
+        chat_file = self._chat_buffer_file(chat_id)
+        if chat_file.exists():
+            chat_file.unlink()
 
     def pop_images(self, chat_id: int) -> list[BufferedImage]:
-        if chat_id not in self._by_chat:
-            return []
-        images = self._by_chat[chat_id].images
-        self._by_chat[chat_id] = ChatBuffer()
+        images = self.peek_images(chat_id)
+        self.clear_images(chat_id)
         return images
 
 

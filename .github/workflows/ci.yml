@@ -21,6 +21,19 @@ jobs:
       - name: Install core dependencies
         run: pip install -r core/requirements.txt
 
+      - name: Validate runtime env requirements by role
+        env:
+          TELEGRAM_TOKEN: test-telegram-token
+          GOOGLE_API_KEY: test-google-api-key
+          AI_PROVIDER: google
+          DELIVERY_WORDPRESS_ENABLED: "false"
+          DELIVERY_ASTRO_ENABLED: "false"
+        run: |
+          python -m core.check_github_env ingest
+          python -m core.check_github_env polling
+          python -m core.check_github_env intake-processor
+          python -m core.check_github_env delivery-worker
+
       - name: Compile Python sources
         run: python -m compileall core
 

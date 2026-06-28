@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -43,3 +44,47 @@ class TelegramClient:
                 content=file_response.content,
                 mime_type=mime_type,
             )
+
+    def get_updates(
+        self,
+        *,
+        limit: int = 100,
+        timeout_seconds: int = 0,
+        offset: int | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "timeout": timeout_seconds,
+            "limit": limit,
+        }
+        if offset is not None:
+            params["offset"] = offset
+
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.get(f"{self.api_base}/getUpdates", params=params)
+            response.raise_for_status()
+            payload = response.json()
+
+        if not payload.get("ok"):
+            raise RuntimeError(f"Telegram getUpdates failed: {payload}")
+        updates = payload.get("result", [])
+        return updates if isinstance(updates, list) else []
+
+    def acknowledge_updates(self, max_update_id: int) -> None:
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.get(
+                f"{self.api_base}/getUpdates",
+                params={"offset": max_update_id + 1, "limit": 1, "timeout": 0},
+            )
+            response.raise_for_status()
+
+    def delete_webhook(self, drop_pending_updates: bool = False) -> None:
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(
+                f"{self.api_base}/deleteWebhook",
+                data={"drop_pending_updates": "true" if drop_pending_updates else "false"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+        if not payload.get("ok"):
+            raise RuntimeError(f"Telegram deleteWebhook failed: {payload}")

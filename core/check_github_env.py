@@ -5,8 +5,15 @@ import sys
 from core.config.env_validation import collect_missing_env_keys
 
 
+def _parse_role(argv: list[str]) -> str | None:
+    if len(argv) <= 1:
+        return None
+    return argv[1].strip() or None
+
+
 def main() -> int:
-    missing = collect_missing_env_keys()
+    runtime_role = _parse_role(sys.argv)
+    missing = collect_missing_env_keys(runtime_role=runtime_role)
 
     if not missing:
         print("OK: all required environment variables are present.")

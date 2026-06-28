@@ -24,23 +24,40 @@ jobs:
       - name: Install dependencies
         run: pip install -r core/requirements.txt
 
-      - name: Poll Telegram and deliver to WordPress
+      - name: Validate polling runtime env
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_ALLOWED_CHAT_IDS: ${{ secrets.TELEGRAM_ALLOWED_CHAT_IDS }}
+          ROADTOCORE_RUNTIME_ROLE: polling
+        run: python -m core.check_github_env polling
+
+      - name: Stage Telegram intake events (polling)
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_ALLOWED_CHAT_IDS: ${{ secrets.TELEGRAM_ALLOWED_CHAT_IDS }}
+          ROADTOCORE_RUNTIME_ROLE: polling
+          ROADTOCORE_OUTBOX_DIR: /tmp/roadtocore_outbox
+        run: python -m core.telegram.polling
+
+      - name: Validate intake processor runtime env
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DELIVERY_WORDPRESS_ENABLED: "true"
-          DELIVERY_WORDPRESS_ENDPOINT: ${{ secrets.DELIVERY_WORDPRESS_ENDPOINT }}
-          DELIVERY_WORDPRESS_USERNAME: ${{ secrets.DELIVERY_WORDPRESS_USERNAME }}
-          DELIVERY_WORDPRESS_APP_PASSWORD: ${{ secrets.DELIVERY_WORDPRESS_APP_PASSWORD }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPO: ${{ github.repository }}
+          AI_PROVIDER: google
+          ROADTOCORE_RUNTIME_ROLE: intake-processor
+        run: python -m core.check_github_env intake-processor
+
+      - name: Process staged intake events (AI + neutral payload)
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           AI_PROVIDER: google
           AI_DEFAULT_LANGUAGE: ${{ vars.AI_DEFAULT_LANGUAGE || 'Italian' }}
           GOOGLE_TRANSCRIPTION_MODEL: ${{ vars.GOOGLE_TRANSCRIPTION_MODEL || 'gemini-2.5-flash' }}
           GOOGLE_GENERATION_MODEL: ${{ vars.GOOGLE_GENERATION_MODEL || 'gemini-2.5-flash' }}
+          ROADTOCORE_RUNTIME_ROLE: intake-processor
           ROADTOCORE_OUTBOX_DIR: /tmp/roadtocore_outbox
-        run: python -m core.polling
+        run: python -m core.workers.intake_processor
 
       - name: Upload outbox artifact
         if: always()

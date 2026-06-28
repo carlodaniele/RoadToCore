@@ -1,10 +1,10 @@
 # RoadToCore
 
-RoadToCore is a CMS-agnostic content pipeline that receives Telegram messages, triggers on audio arrival, generates structured editorial payloads via AI, and distributes the result to target adapters (WordPress, Astro, and future CMS/frameworks).
+RoadToCore is a CMS-agnostic content pipeline with a decoupled intake architecture: Telegram input stages events first, then downstream workers process AI and delivery independently.
 
 ## Architecture
 
-- `core/`: Python webhook + orchestration + AI pipeline + schema validation.
+- `core/`: Python API + Telegram intake modules + AI pipeline + schema validation.
 - `shared/schema.json`: versioned contract (`1.1.x`) for all adapters.
 - `adapters/wordpress/`: WordPress 7.0+ plugin (REST ingest + Abilities API + block mapping).
 - `adapters/astro/`: Node/TypeScript adapter that writes Markdown files.
@@ -37,22 +37,16 @@ The authoritative schema is in `shared/schema.json`.
 
 ## Core Features Implemented
 
-- GitHub Actions polling worker running every 5 minutes (cron-based).
-- Telegram message polling via `getUpdates` API.
-- Trigger only on audio (`audio`, `voice`, or `document` with audio MIME type).
-- Image buffering by `chat_id` before audio arrives.
-- **EXIF metadata extraction**: GPS coordinates and image orientation detection.
-- **Image processing**: automatic rotation based on EXIF orientation + optimization (resize, compress JPEG).
-- Telegram file download via Bot API.
-- Telegram image download, EXIF processing, and local asset persistence.
-- Two-step AI flow:
-  1. audio transcription
-  2. transcript -> structured content
-- JSON schema validation and normalization.
-- File-based idempotency replay protection.
-- JSON outbox persistence for downstream adapters.
-- Delivery layer with retries/backoff and `.delivered` / `.failed` folders.
-- Optional direct adapter delivery (WordPress HTTP + Astro CLI).
+- Telegram webhook ingestion (`POST /webhook/telegram`) with fast, non-blocking intake staging.
+- Telegram polling worker with strict short-lived `run_once` behavior.
+- Trigger on audio (`audio`, `voice`, or `document` with audio MIME type).
+- Persistent per-chat image buffering on filesystem (`outbox/intake/buffer`).
+- Intake event staging on filesystem (`outbox/intake/events`).
+- File-based intake idempotency (`outbox/intake/.idempotency`).
+- Shared Telegram parsing and idempotency key logic for webhook and polling paths.
+- Delivery and AI execution are intentionally decoupled from input layer runtime.
+- Intake processor worker (`run_once`) that consumes staged Telegram events and emits schema-validated neutral payloads.
+- Scheduled GitHub Actions runtime that executes polling + intake processor as decoupled stages.
 
 ## Core Setup
 
@@ -76,7 +70,7 @@ Important variables:
 - `ROADTOCORE_AI_REQUEST_CONFIG_FILE`
 - `ROADTOCORE_OUTBOX_DIR`
 - `ROADTOCORE_ASSETS_DIR`
-- `DELIVERY_AUTORUN`
+- `ROADTOCORE_RUNTIME_ROLE` (`ingest`, `polling`, `intake-processor`, `delivery-worker`, `all`)
 - `DELIVERY_WORDPRESS_*`
 - `DELIVERY_ASTRO_*`
 
@@ -195,16 +189,47 @@ cd core
 python -m core.check_github_env
 ```
 
+Validate required environment variables for a specific runtime role:
+
+```bash
+python -m core.check_github_env ingest
+python -m core.check_github_env polling
+python -m core.check_github_env intake-processor
+python -m core.check_github_env delivery-worker
+```
+
 If you want startup to fail when required keys are missing, set:
 
 ```bash
 ENV_VALIDATION_STRICT=true
 ```
 
-Deliver pending outbox payloads manually:
+Role-aware validation notes:
+
+- `ingest` validates only ingest-role requirements.
+- `polling` validates Telegram polling requirements.
+- `intake-processor` validates Telegram + AI requirements.
+- `delivery-worker` validates only enabled delivery adapter requirements.
+- `all` validates all requirements together.
+
+Run one polling cycle (short-lived worker):
 
 ```bash
-curl -X POST http://localhost:8080/outbox/deliver
+python -m core.telegram.polling
+```
+
+Run one intake processing cycle (short-lived worker):
+
+```bash
+python -m core.workers.intake_processor
+```
+
+This worker reads staged events from `outbox/intake/events`, downloads Telegram assets, runs the AI pipeline, validates payloads against `shared/schema.json`, and writes neutral payload files into the outbox root.
+
+Run intake refactor regression tests:
+
+```bash
+python -m unittest core.tests.test_intake_refactor core.tests.test_intake_integration -v
 ```
 
 ## Image Processing (EXIF Metadata Extraction)
@@ -365,93 +390,22 @@ node dist/index.js \
 
 ## Debugging & Monitoring
 
-The workflow is instrumented with **8 checkpoint phases** that emit structured logs, making it easy to identify where anomalies occur when the workflow fails.
+RoadToCore now runs as a decoupled staged pipeline. Troubleshooting should be done per runtime role instead of treating polling as a monolithic "poll + AI + delivery" loop.
 
-### Workflow Phases & Log Markers
+Runtime stages:
 
-Each phase emits logs with a prefix to indicate which step is executing:
+- `ingest`: webhook endpoint only (stages intake events).
+- `polling`: Telegram polling stager only (`run_once`).
+- `intake-processor`: consumes staged events, downloads media, runs AI, emits neutral payload JSON.
+- `delivery-worker`: dispatches pending outbox payloads to enabled adapters.
 
-| Phase | Marker | What's Happening | Common Failure Points |
-|-------|--------|------------------|----------------------|
-| 1. Polling Setup | `[POLLING]` | Initialize worker, delete webhook, fetch Telegram updates | TELEGRAM_TOKEN missing/invalid |
-| 2. Telegram Download | `[TELEGRAM]` | Download audio and image files from Telegram API | Network timeout, file not found |
-| 3. Image Processing | `[IMAGES]` | Extract EXIF, rotate, optimize, and validate images | Corrupted image data, unsupported format |
-| 4. AI Pipeline | `[AI]` + `[TRANSCRIPTION]` + `[GENERATION]` | Transcribe audio and generate structured content | API key invalid, quota exceeded, malformed response |
-| 5. Validation | `[VALIDATE]` | Normalize and validate payload against schema | Missing required fields, invalid JSON |
-| 6. Outbox | `[OUTBOX]` | Queue payload for delivery to destination adapters | Disk write errors |
-| 7. Dispatch | `[DISPATCH]` + `[WORDPRESS]` | Upload images to WordPress Media Library, build gallery blocks, send payload | WP auth failed, endpoint unreachable, malformed blocks |
-| 8. Completion | `[POLLING]` | Acknowledge Telegram updates, clean up, report completion | Update acknowledgment failed |
-
-### Example Workflow Output
-
-When the workflow runs successfully, you'll see logs like:
-
-```
-[POLLING] Starting Telegram polling worker...
-[POLLING] Ensuring polling mode (deleting webhook)...
-[POLLING] Webhook deleted, polling mode active.
-[POLLING] Fetching Telegram updates...
-[POLLING] Fetched 2 update(s).
-  [POLLING] Processing audio: chat=*** message_id=56
-  [TELEGRAM] Downloading audio file (file_id=...)...
-  [TELEGRAM] Audio downloaded: 245123 bytes
-  [AI] Starting AI pipeline (transcription + generation)...
-    [TRANSCRIPTION] Starting transcription (245123 bytes, audio/ogg)...
-    [TRANSCRIPTION] Complete (3420ms, 512 chars, tokens in=1234 out=567)
-    [GENERATION] Starting content generation (512 chars, 1 image(s))...
-    [GENERATION] Complete (2156ms, tokens in=890 out=345)
-  [AI] Pipeline complete.
-  [IMAGES] Processing 1 image(s) from batch...
-    [IMAGES] Image 1: Downloading from Telegram...
-    [IMAGES] Image 1: Downloaded (567890 bytes)
-    [IMAGES] Image 1: Extracting EXIF metadata...
-    [IMAGES] Image 1: EXIF parsed - GPS(45.1234, 7.5678)
-    [IMAGES] Image 1: Rotating and optimizing...
-    [IMAGES] Image 1: Optimized (234567 bytes)
-    [IMAGES] Image 1: Saved to /tmp/roadtocore_outbox/assets/5534984149/uuid/image-1.jpg
-  [IMAGES] Processed 1 image(s) with EXIF/GPS extraction.
-  [VALIDATE] Normalizing and validating payload...
-  [VALIDATE] Payload valid.
-  [POLLING] Saved: uuid — Article Title
-[DELIVERY] Delivering 1 payload(s) to WordPress...
-[OUTBOX] Found 1 pending payload(s) to deliver...
-[OUTBOX] Delivering payload 1/1: uuid.json...
-[DISPATCH] Dispatching event uuid...
-  [DISPATCH] Starting WordPress dispatch for event uuid...
-  [DISPATCH] Processing 1 image(s) for upload...
-  [DISPATCH] Image 1/1: uploading local file...
-    [WORDPRESS] Uploading image: image-1.jpg (234567 bytes, image/jpeg)...
-    [WORDPRESS] Image uploaded: https://example.com/wp-content/uploads/2026/06/image-1.jpg (ID: 123)
-  [DISPATCH] Building gallery blocks for 1 image(s)...
-  [DISPATCH] Gallery blocks appended.
-  [DISPATCH] Sending payload to WordPress endpoint...
-  [DISPATCH] WordPress dispatch successful (HTTP 200).
-[DISPATCH] delivered: /tmp/roadtocore_outbox/.delivered/uuid.json
-[POLLING] Acknowledged 2 update(s) up to 797716227.
-[POLLING] Workflow complete.
-```
-
-### How to Interpret Errors
-
-When the workflow fails, look for:
-
-1. **`[ERROR]` lines** — immediate problem indicator (e.g., missing token, authentication failed).
-2. **Phase where logs stop** — indicates which component failed (e.g., logs stop at `[TRANSCRIPTION]` → AI provider issue).
-3. **Last successful phase** — helps narrow troubleshooting scope.
-
-Examples:
-
-- **Logs stop after `[TELEGRAM]`**: Check Telegram API key, network connectivity.
-- **Logs stop after `[IMAGES]`**: Check image format support, EXIF parsing errors, disk space.
-- **Logs stop after `[TRANSCRIPTION]`**: Check Google API key, model availability, quota limits.
-- **Logs stop after `[VALIDATE]`**: Check schema compatibility, payload structure.
-- **Logs stop after `[WORDPRESS]`**: Check WordPress credentials, endpoint URL, REST API permissions.
+For full troubleshooting procedures and failure mapping by stage, see `DEBUGGING.md`.
 
 ## Current Limitations
 
 - Google AI integration requires valid API key and model availability.
 - File-based idempotency/outbox state is suitable for single-node deployment. For multi-node production, use Redis/Postgres.
-- Polling runs every 5 minutes via GitHub Actions cron. For real-time processing, consider webhook + localtunnel setup (experimental).
+- Polling runs every 5 minutes via GitHub Actions cron and stages events first; AI processing runs in a dedicated intake processor step.
 - EXIF GPS extraction depends on image having valid GPS tags; images without GPS metadata will have no `gps` field in payload.
 
 ## Suggested Next Steps
