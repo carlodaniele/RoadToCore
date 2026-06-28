@@ -9,4 +9,16 @@ def deliver_pending_outbox(dispatcher: DeliveryDispatcher, outbox_dir: Path) -> 
     results: list[dict[str, str]] = []
     
     pending_payloads = sorted(outbox_dir.glob("*.json"))
-    print(f\"[OUTBOX] Found {len(pending_payloads)} pending payload(s) to deliver...\")\n\n    for idx, payload_path in enumerate(pending_payloads, 1):\n        try:\n            print(f\"[OUTBOX] Delivering payload {idx}/{len(pending_payloads)}: {payload_path.name}...\")\n            result = dispatcher.dispatch_payload(payload_path)\n            results.append({\"status\": \"delivered\", \"path\": result[\"path\"]})\n        except Exception as exc:  # pragma: no cover - runtime errors.\n            print(f\"[OUTBOX] ERROR: Dispatch failed, marking as failed: {exc}\")\n            failed_path = dispatcher.mark_failed(payload_path, str(exc))\n            results.append({\"status\": \"failed\", \"path\": failed_path})\n\n    return results
+    print(f"[OUTBOX] Found {len(pending_payloads)} pending payload(s) to deliver...")
+
+    for idx, payload_path in enumerate(pending_payloads, 1):
+        try:
+            print(f"[OUTBOX] Delivering payload {idx}/{len(pending_payloads)}: {payload_path.name}...")
+            result = dispatcher.dispatch_payload(payload_path)
+            results.append({"status": "delivered", "path": result["path"]})
+        except Exception as exc:  # pragma: no cover - runtime errors.
+            print(f"[OUTBOX] ERROR: Dispatch failed, marking as failed: {exc}")
+            failed_path = dispatcher.mark_failed(payload_path, str(exc))
+            results.append({"status": "failed", "path": failed_path})
+
+    return results
