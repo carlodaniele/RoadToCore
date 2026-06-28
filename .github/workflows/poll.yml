@@ -59,6 +59,39 @@ jobs:
           ROADTOCORE_OUTBOX_DIR: /tmp/roadtocore_outbox
         run: python -m core.workers.intake_processor
 
+      - name: Validate delivery worker runtime env
+        env:
+          DELIVERY_WORDPRESS_ENABLED: "true"
+          DELIVERY_WORDPRESS_ENDPOINT: ${{ secrets.DELIVERY_WORDPRESS_ENDPOINT }}
+          DELIVERY_WORDPRESS_USERNAME: ${{ secrets.DELIVERY_WORDPRESS_USERNAME }}
+          DELIVERY_WORDPRESS_APP_PASSWORD: ${{ secrets.DELIVERY_WORDPRESS_APP_PASSWORD }}
+          DELIVERY_ASTRO_ENABLED: ${{ vars.DELIVERY_ASTRO_ENABLED || 'false' }}
+          DELIVERY_ASTRO_ADAPTER_DIST: ${{ vars.DELIVERY_ASTRO_ADAPTER_DIST || '' }}
+          DELIVERY_ASTRO_CONTENT_DIR: ${{ vars.DELIVERY_ASTRO_CONTENT_DIR || '' }}
+          DELIVERY_ASTRO_PUBLIC_DIR: ${{ vars.DELIVERY_ASTRO_PUBLIC_DIR || '' }}
+          DELIVERY_ASTRO_ASSETS_DIR: ${{ vars.DELIVERY_ASTRO_ASSETS_DIR || '' }}
+          ROADTOCORE_RUNTIME_ROLE: delivery-worker
+        run: python -m core.check_github_env delivery-worker
+
+      - name: Deliver pending outbox payloads
+        env:
+          DELIVERY_WORDPRESS_ENABLED: "true"
+          DELIVERY_WORDPRESS_ENDPOINT: ${{ secrets.DELIVERY_WORDPRESS_ENDPOINT }}
+          DELIVERY_WORDPRESS_USERNAME: ${{ secrets.DELIVERY_WORDPRESS_USERNAME }}
+          DELIVERY_WORDPRESS_APP_PASSWORD: ${{ secrets.DELIVERY_WORDPRESS_APP_PASSWORD }}
+          DELIVERY_WORDPRESS_TIMEOUT: ${{ vars.DELIVERY_WORDPRESS_TIMEOUT || '30' }}
+          DELIVERY_RETRIES: ${{ vars.DELIVERY_RETRIES || '2' }}
+          DELIVERY_RETRY_BACKOFF_SECONDS: ${{ vars.DELIVERY_RETRY_BACKOFF_SECONDS || '2.0' }}
+          DELIVERY_ASTRO_ENABLED: ${{ vars.DELIVERY_ASTRO_ENABLED || 'false' }}
+          DELIVERY_ASTRO_NODE_BIN: ${{ vars.DELIVERY_ASTRO_NODE_BIN || 'node' }}
+          DELIVERY_ASTRO_ADAPTER_DIST: ${{ vars.DELIVERY_ASTRO_ADAPTER_DIST || '' }}
+          DELIVERY_ASTRO_CONTENT_DIR: ${{ vars.DELIVERY_ASTRO_CONTENT_DIR || '' }}
+          DELIVERY_ASTRO_PUBLIC_DIR: ${{ vars.DELIVERY_ASTRO_PUBLIC_DIR || '' }}
+          DELIVERY_ASTRO_ASSETS_DIR: ${{ vars.DELIVERY_ASTRO_ASSETS_DIR || '' }}
+          ROADTOCORE_RUNTIME_ROLE: delivery-worker
+          ROADTOCORE_OUTBOX_DIR: /tmp/roadtocore_outbox
+        run: python -m core.workers.delivery_worker
+
       - name: Upload outbox artifact
         if: always()
         uses: actions/upload-artifact@v4
